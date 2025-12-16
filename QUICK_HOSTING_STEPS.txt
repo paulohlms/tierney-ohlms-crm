@@ -1,0 +1,58 @@
+QUICK REFERENCE: Host Your CRM Online
+=====================================
+
+STEP 1: Upload to GitHub (15 min)
+----------------------------------
+1. Create GitHub account: https://github.com
+2. Install Git: https://git-scm.com/download/win
+3. In PowerShell (in CRM folder):
+   git init
+   git add .
+   git commit -m "Initial commit"
+   git remote add origin https://github.com/YOUR-USERNAME/tierney-ohlms-crm.git
+   git branch -M main
+   git push -u origin main
+
+STEP 2: Deploy to Render (20 min)
+----------------------------------
+1. Sign up: https://render.com (use GitHub login)
+2. Click "New +" → "Web Service"
+3. Connect your GitHub repository
+4. Configure:
+   - Name: tierney-ohlms-crm
+   - Environment: Python 3
+   - Build Command: pip install -r requirements.txt
+   - Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
+   - Plan: Free
+5. Add Environment Variable:
+   - Key: SECRET_KEY
+   - Value: (generate random string from https://randomkeygen.com)
+6. Click "Create Web Service"
+7. Wait 5-10 minutes
+8. Get your URL: https://your-app.onrender.com
+
+STEP 3: First Login (5 min)
+----------------------------
+1. Go to your Render URL
+2. Login with:
+   - Email: Paul@tierneyohlms.com
+   - Password: ChangeMe123!
+3. Go to Settings → Change password immediately!
+
+STEP 4: Add Users (5 min)
+--------------------------
+1. Log in to CRM
+2. Go to Settings tab
+3. Click "+ Add User"
+4. Fill in name, email, role, password
+5. Share URL and credentials with user
+
+STEP 5: Update After Changes (2 min)
+-------------------------------------
+In PowerShell:
+   git add .
+   git commit -m "Description of changes"
+   git push
+(Render auto-deploys - wait 3-5 minutes)
+
+YOUR LIVE URL: https://your-app-name.onrender.com

@@ -1,0 +1,58 @@
+═══════════════════════════════════════════════════════════
+  STEP-BY-STEP: APPLYING CRM UPDATES
+═══════════════════════════════════════════════════════════
+
+STEP 1: Stop the Server (if it's running)
+───────────────────────────────────────────
+1. Go to the PowerShell window where the server is running
+2. Press: Ctrl + C
+3. If it asks, type: Y
+4. Press Enter
+
+STEP 2: Run the Database Migration
+───────────────────────────────────
+In PowerShell, make sure you're in the CRM folder:
+
+    cd "C:\Users\PaulOhlms\Desktop\CRM Tool"
+
+Then run:
+
+    python migrate_database.py
+
+You should see:
+    ✓ Database migration completed successfully!
+
+STEP 3: Restart the Server
+───────────────────────────
+Type this and press Enter:
+
+    python -m uvicorn main:app --reload
+
+You should see:
+    INFO:     Uvicorn running on http://127.0.0.1:8000
+
+KEEP THIS WINDOW OPEN!
+
+STEP 4: Open in Browser
+────────────────────────
+1. Open your web browser
+2. Go to: http://localhost:8000
+3. Log in: admin@firm.com / admin123
+
+STEP 5: Test the New Features
+──────────────────────────────
+1. Click "Dashboard" in the navigation - you should see metrics
+2. Click "Clients" - you should see:
+   - Revenue column
+   - Inline editing dropdowns
+   - Filter options
+   - Export CSV button
+3. Try editing a status directly in the table
+4. Try the filters
+
+═══════════════════════════════════════════════════════════
+
+That's it! The updates are now active.
+
+═══════════════════════════════════════════════════════════
+

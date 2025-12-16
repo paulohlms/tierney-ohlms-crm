@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Tierney & Ohlms CRM{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/dashboard" class="nav-brand">Tierney & Ohlms CRM</a>
+            <div class="nav-links">
+                <a href="/dashboard">Dashboard</a>
+                <a href="/clients">Clients</a>
+                <a href="/prospects">Prospects</a>
+                <a href="/timesheets">Timesheets</a>
+                {% if user and user.permissions and user.permissions.get('view_settings') %}
+                <a href="/settings">Settings</a>
+                {% endif %}
+                {% if user %}
+                <span class="user-info">Logged in as {{ user.name }}</span>
+                <a href="/logout">Logout</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+    
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <footer class="footer">
+        <p>&copy; 2025 Tierney & Ohlms. Internal Use Only.</p>
+    </footer>
+</body>
+</html>
+

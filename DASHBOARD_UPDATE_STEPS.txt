@@ -1,0 +1,54 @@
+═══════════════════════════════════════════════════════════
+  STEP-BY-STEP: APPLYING NEW DASHBOARD
+═══════════════════════════════════════════════════════════
+
+STEP 1: Stop the Server (if it's running)
+───────────────────────────────────────────
+1. Go to the PowerShell window where the server is running
+2. Press: Ctrl + C
+3. If it asks, type: Y
+4. Press Enter
+
+STEP 2: Open PowerShell
+────────────────────────
+1. Press the Windows key
+2. Type: powershell
+3. Press Enter
+
+STEP 3: Go to Your CRM Folder
+──────────────────────────────
+Type this and press Enter:
+
+    cd "C:\Users\PaulOhlms\Desktop\CRM Tool"
+
+STEP 4: Start the Server
+─────────────────────────
+Type this and press Enter:
+
+    python -m uvicorn main:app --reload
+
+You should see:
+    INFO:     Uvicorn running on http://127.0.0.1:8000
+
+KEEP THIS WINDOW OPEN!
+
+STEP 5: Open in Browser
+───────────────────────
+1. Open your web browser
+2. Go to: http://localhost:8000
+3. Log in: admin@firm.com / admin123
+
+STEP 6: View the New Dashboard
+───────────────────────────────
+1. Click "Dashboard" in the top navigation
+2. You should see the new Sales Pipeline Dashboard with:
+   - Prospects Pipeline (blue section)
+   - Closed/Won deals (green section)
+   - Lost Deals (red section)
+
+═══════════════════════════════════════════════════════════
+
+That's it! The new dashboard is now active.
+
+═══════════════════════════════════════════════════════════
+

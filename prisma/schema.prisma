@@ -1,0 +1,129 @@
+// Prisma schema for Whiskey Inventory Management System
+// Database: PostgreSQL (via Supabase)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Barrel Batches: Purchases of multiple barrels
+model BarrelBatch {
+  id           String   @id @default(uuid())
+  name         String?  // Optional batch name/identifier
+  purchaseDate DateTime
+  numBarrels   Int      // Number of barrels in this batch
+  totalCost    Decimal  @db.Decimal(12, 2) // Total cost of the batch (~$100k)
+  supplier     String?
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  barrels      Barrel[]
+
+  @@index([purchaseDate])
+}
+
+// Individual Barrels: Each barrel tracked separately
+model Barrel {
+  id                String   @id @default(uuid())
+  barrelId          String   @unique // Unique identifier like "BAR-001"
+  batchId           String
+  groupLabel        String?  // Custom group/label (e.g., "2025 Rye Private Selection - Group A")
+  currentFillPercent Decimal  @default(100) @db.Decimal(5, 2) // Starts at 100%
+  status            String   @default("Aging") // Aging, In Production, Empty, etc.
+  notes             String?  @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  batch             BarrelBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  usageLogs         UsageLog[]
+  bottlingRunUsages BottlingRunUsage[]
+
+  @@index([barrelId])
+  @@index([batchId])
+  @@index([status])
+  @@index([groupLabel])
+}
+
+// Usage Logs: Track when whiskey is used from barrels
+model UsageLog {
+  id            String   @id @default(uuid())
+  date          DateTime
+  barrelId      String
+  percentUsed   Decimal  @db.Decimal(5, 2) // Percentage used (e.g., 5%, 50%, 100%)
+  allocatedCost Decimal  @db.Decimal(12, 2) // Calculated cost for this usage
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  barrel              Barrel              @relation(fields: [barrelId], references: [id], onDelete: Cascade)
+  bottlingRunUsages   BottlingRunUsage[]
+
+  @@index([date])
+  @@index([barrelId])
+}
+
+// Bottling Runs: Production runs that create bottled inventory
+model BottlingRun {
+  id                  String   @id @default(uuid())
+  name                String   // Name/identifier for the run
+  date                DateTime
+  bottleType          String   // SKU/bottle type identifier
+  totalBottlesProduced Int      // Number of bottles produced
+  totalCost           Decimal  @db.Decimal(12, 2) // Sum of linked usage costs
+  unitCost            Decimal  @db.Decimal(10, 4) // Calculated: totalCost / totalBottlesProduced
+  remainingInventory  Int      @default(0) // Track remaining bottles
+  notes               String?  @db.Text
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  usages              BottlingRunUsage[]
+  shipments           Shipment[]
+
+  @@index([date])
+  @@index([bottleType])
+}
+
+// Junction table: Links bottling runs to usage logs
+model BottlingRunUsage {
+  id            String   @id @default(uuid())
+  bottlingRunId String
+  usageLogId    String
+  createdAt     DateTime @default(now())
+
+  // Relations
+  bottlingRun   BottlingRun @relation(fields: [bottlingRunId], references: [id], onDelete: Cascade)
+  usageLog      UsageLog    @relation(fields: [usageLogId], references: [id], onDelete: Cascade)
+
+  @@unique([bottlingRunId, usageLogId])
+  @@index([bottlingRunId])
+  @@index([usageLogId])
+}
+
+// Shipments: Outgoing inventory (primarily subscriptions)
+model Shipment {
+  id            String   @id @default(uuid())
+  date          DateTime
+  bottlingRunId String
+  quantity      Int      // Number of bottles shipped
+  customerRef   String?  // Customer/subscription reference
+  cogs          Decimal  @db.Decimal(12, 2) // Calculated COGS for this shipment
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  bottlingRun   BottlingRun @relation(fields: [bottlingRunId], references: [id], onDelete: Restrict)
+
+  @@index([date])
+  @@index([bottlingRunId])
+}
+

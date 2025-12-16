@@ -1,0 +1,1051 @@
+{% extends "base.html" %}
+
+{% block title %}2025 Sales Pipeline Dashboard - Tierney & Ohlms CRM{% endblock %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+
+<!-- EmailJS Configuration -->
+<script>
+(function() {
+    // Initialize EmailJS
+    emailjs.init('NR486FeDxHVXfOS5k');
+})();
+</script>
+
+<!-- Follow-up Reminder Alert Banner -->
+<div id="reminder-banner" style="display: none; background: #ff6b6b; color: white; padding: 1rem; margin-bottom: 1rem; border: 2px solid #dc2626; text-align: center; font-weight: bold;">
+    <span id="reminder-count">0</span> follow-up reminder(s) due today!
+    <button onclick="checkAndSendReminders()" class="btn" style="margin-left: 1rem; background: white; color: #dc2626; border: 1px solid white;">Check & Send Reminders</button>
+</div>
+
+<!-- Summary Cards -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+    <div style="background: #1a1a1a; border: 1px solid #333; padding: 1.5rem; border-radius: 4px; text-align: center;">
+        <div style="font-size: 0.9rem; color: #999; margin-bottom: 0.5rem;">Total Clients</div>
+        <div style="font-size: 2rem; font-weight: bold; color: #fff; margin-bottom: 0.5rem;">{{ total_clients }}</div>
+        <a href="/clients" style="color: #fff; text-decoration: underline; font-size: 0.85rem;">View All →</a>
+    </div>
+    <div style="background: #1a1a1a; border: 1px solid #333; padding: 1.5rem; border-radius: 4px; text-align: center;">
+        <div style="font-size: 0.9rem; color: #999; margin-bottom: 0.5rem;">Active Clients</div>
+        <div style="font-size: 2rem; font-weight: bold; color: #fff; margin-bottom: 0.5rem;">{{ total_active }}</div>
+        <a href="/clients?status=Active" style="color: #fff; text-decoration: underline; font-size: 0.85rem;">View Active →</a>
+    </div>
+    <div style="background: #1a1a1a; border: 1px solid #333; padding: 1.5rem; border-radius: 4px; text-align: center;">
+        <div style="font-size: 0.9rem; color: #999; margin-bottom: 0.5rem;">Total Prospects</div>
+        <div style="font-size: 2rem; font-weight: bold; color: #fff; margin-bottom: 0.5rem;">{{ prospects_count }}</div>
+        <a href="/prospects" style="color: #fff; text-decoration: underline; font-size: 0.85rem;">View Pipeline →</a>
+    </div>
+    <div style="background: #1a1a1a; border: 1px solid #333; padding: 1.5rem; border-radius: 4px; text-align: center;">
+        <div style="font-size: 0.9rem; color: #999; margin-bottom: 0.5rem;">Total Revenue</div>
+        <div style="font-size: 2rem; font-weight: bold; color: #fff; margin-bottom: 0.5rem;">${{ total_revenue_formatted }}</div>
+        <div style="font-size: 0.8rem; color: #666;">Annual (Active)</div>
+    </div>
+    <div style="background: #1a1a1a; border: 1px solid #333; padding: 1.5rem; border-radius: 4px; text-align: center;">
+        <div style="font-size: 0.9rem; color: #999; margin-bottom: 0.5rem;">Total Hours</div>
+        <div style="font-size: 2rem; font-weight: bold; color: #fff; margin-bottom: 0.5rem;">{{ "%.0f"|format(total_hours) }}</div>
+        <a href="/timesheets" style="color: #fff; text-decoration: underline; font-size: 0.85rem;">View Timesheets →</a>
+    </div>
+</div>
+
+<div class="page-header">
+    <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+        <div>
+            <h1>2025 Sales Pipeline Dashboard</h1>
+            <p style="color: #666; font-size: 0.9rem; margin-top: 0.5rem;" id="current-date"></p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button onclick="checkAndSendReminders()" class="btn btn-primary" id="reminder-btn">Check & Send Due Reminders</button>
+            <a href="/clients/new" class="btn btn-primary">+ Add Deal</a>
+            <a href="/clients/export" class="btn btn-secondary">Export CSV</a>
+        </div>
+    </div>
+    
+    <!-- Search and Filters -->
+    <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-top: 1.5rem; padding: 1rem; background: #f8f8f8; border: 1px solid #ddd;">
+        <div style="flex: 1; min-width: 200px;">
+            <input type="text" id="global-search" placeholder="Search deals..." 
+                   style="width: 100%; padding: 0.6rem; border: 1px solid #000000; border-radius: 0; font-family: Georgia, 'Times New Roman', Times, serif;"
+                   oninput="handleSearch()">
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <select id="status-filter" onchange="applyFilters()" 
+                    style="padding: 0.6rem; border: 1px solid #000000; border-radius: 0; font-family: Georgia, 'Times New Roman', Times, serif;">
+                <option value="all">All Status</option>
+                <option value="Prospect">Prospect</option>
+                <option value="Active">Won</option>
+                <option value="Dead">Lost</option>
+            </select>
+            <input type="date" id="date-from" onchange="applyFilters()" 
+                   style="padding: 0.6rem; border: 1px solid #000000; border-radius: 0; font-family: Georgia, 'Times New Roman', Times, serif;"
+                   placeholder="From">
+            <input type="date" id="date-to" onchange="applyFilters()" 
+                   style="padding: 0.6rem; border: 1px solid #000000; border-radius: 0; font-family: Georgia, 'Times New Roman', Times, serif;"
+                   placeholder="To">
+        </div>
+    </div>
+</div>
+
+<!-- Pipeline Funnel -->
+<section style="margin-bottom: 2rem;">
+    <div class="detail-section">
+        <h2 style="margin-bottom: 1rem; font-family: Georgia, 'Times New Roman', Times, serif;">Pipeline Funnel</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+            <div style="text-align: center; padding: 1.5rem; background: #eff6ff; border: 2px solid #2563eb; border-radius: 0;">
+                <div style="font-size: 2rem; font-weight: bold; color: #2563eb;">{{ prospects_count }}</div>
+                <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.5rem;">Prospects</div>
+                <div style="font-size: 1.25rem; font-weight: 600; color: #2563eb;">${{ "{:,.0f}".format(total_prospect_revenue) }}</div>
+            </div>
+            <div style="text-align: center; font-size: 2rem; color: #666; display: flex; align-items: center; justify-content: center;">→</div>
+            <div style="text-align: center; padding: 1.5rem; background: #f0fdf4; border: 2px solid #16a34a; border-radius: 0;">
+                <div style="font-size: 2rem; font-weight: bold; color: #16a34a;">{{ won_count }}</div>
+                <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.5rem;">Won</div>
+                <div style="font-size: 1.25rem; font-weight: 600; color: #16a34a;">${{ "{:,.0f}".format(total_won_revenue) }}</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Charts Section -->
+<section style="margin-bottom: 2rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem;">
+        <div class="detail-section">
+            <h3 style="margin-bottom: 1rem; font-family: Georgia, 'Times New Roman', Times, serif;">Monthly Won Revenue (2025)</h3>
+            <canvas id="monthlyChart" style="max-height: 300px;"></canvas>
+        </div>
+        <div class="detail-section">
+            <h3 style="margin-bottom: 1rem; font-family: Georgia, 'Times New Roman', Times, serif;">Deal Status Distribution</h3>
+            <canvas id="statusChart" style="max-height: 300px;"></canvas>
+        </div>
+    </div>
+</section>
+
+<!-- Prospects Pipeline Section -->
+<section class="pipeline-section prospects-section" id="prospects-section">
+    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 class="section-title">Prospects Pipeline</h2>
+        <button onclick="toggleSection('prospects')" style="background: none; border: none; color: #2563eb; cursor: pointer; text-decoration: underline;">
+            <span id="prospects-toggle">▼</span> Collapse
+        </button>
+    </div>
+    
+    <div class="summary-cards">
+        <div class="summary-card">
+            <div class="summary-label">Total Estimated Revenue</div>
+            <div class="summary-value">${{ "{:,.0f}".format(total_prospect_revenue) }}</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-label">Number of Prospects</div>
+            <div class="summary-value">{{ prospects_count }}</div>
+        </div>
+    </div>
+
+    <div id="prospects-table-container">
+        {% if prospects %}
+        <table class="deals-table" id="prospects-table">
+            <thead>
+                <tr>
+                    <th onclick="sortTable('prospects', 'dealName')" style="cursor: pointer;">Deal Name <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('prospects', 'company')" style="cursor: pointer;">Company <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('prospects', 'ownerName')" style="cursor: pointer;">Owner Name <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('prospects', 'nextFollowUp')" style="cursor: pointer;">Next Follow-Up Date <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('prospects', 'estimatedValue')" style="cursor: pointer;">Estimated Value <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('prospects', 'expectedCloseDate')" style="cursor: pointer;">Expected Close Date <span class="sort-indicator"></span></th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in prospects %}
+                {% set client = item.client %}
+                <tr data-deal-name="{{ client.legal_name|lower }}" data-company="{{ client.legal_name|lower }}" data-status="Prospect" 
+                    data-owner-name="{{ (client.owner_name or '')|lower }}" data-owner-email="{{ client.owner_email or '' }}"
+                    data-next-follow-up="{{ client.next_follow_up_date.strftime('%Y-%m-%d') if client.next_follow_up_date else '' }}"
+                    data-last-reminder="{{ client.last_reminder_sent.strftime('%Y-%m-%d') if client.last_reminder_sent else '' }}"
+                    data-client-id="{{ client.id }}"
+                    data-notes="{% if client.notes %}{{ client.notes[0].content|lower if client.notes else '' }}{% endif %}"
+                    data-estimated-value="{{ item.estimated_revenue }}"
+                    data-expected-close="{{ item.expected_close_date.strftime('%Y-%m-%d') if item.expected_close_date else '' }}">
+                    <td><a href="/clients/{{ client.id }}" class="link-primary">{{ client.legal_name }}</a></td>
+                    <td>{{ client.legal_name }}</td>
+                    <td>{{ client.owner_name or '-' }}</td>
+                    <td class="date {% if client.next_follow_up_date and client.next_follow_up_date <= today %}overdue{% endif %}">
+                        {% if client.next_follow_up_date %}
+                            {{ client.next_follow_up_date.strftime('%b %d, %Y') }}
+                            {% if client.next_follow_up_date < today %}
+                                <span style="color: #dc2626; font-weight: bold;"> (OVERDUE)</span>
+                            {% elif client.next_follow_up_date == today %}
+                                <span style="color: #2563eb; font-weight: bold;"> (DUE TODAY)</span>
+                            {% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td class="currency">${{ "{:,.0f}".format(item.estimated_revenue) }}</td>
+                    <td class="date">
+                        {% if item.expected_close_date %}
+                            {{ item.expected_close_date.strftime('%b %d, %Y') }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if client.notes %}
+                            {{ client.notes[0].content[:50] }}{% if client.notes[0].content|length > 50 %}...{% endif %}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="/clients/{{ client.id }}/edit" class="btn btn-sm btn-secondary">Edit</a>
+                        <form method="post" action="/clients/{{ client.id }}/delete" style="display: inline;" onsubmit="return confirm('Delete this deal?');">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="no-deals">No prospects found</div>
+        {% endif %}
+    </div>
+</section>
+
+<div class="pipeline-arrow">↓</div>
+
+<!-- Closed/Won Section -->
+<section class="pipeline-section won-section" id="won-section">
+    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 class="section-title">Closed/Won in 2025</h2>
+        <button onclick="toggleSection('won')" style="background: none; border: none; color: #16a34a; cursor: pointer; text-decoration: underline;">
+            <span id="won-toggle">▼</span> Collapse
+        </button>
+    </div>
+    
+    <div class="summary-cards">
+        <div class="summary-card">
+            <div class="summary-label">Total Actual Revenue</div>
+            <div class="summary-value">${{ "{:,.0f}".format(total_won_revenue) }}</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-label">Deals Closed/Won</div>
+            <div class="summary-value">{{ won_count }}</div>
+        </div>
+    </div>
+
+    <div id="won-table-container">
+        {% if won_deals %}
+        <table class="deals-table" id="won-table">
+            <thead>
+                <tr>
+                    <th onclick="sortTable('won', 'dealName')" style="cursor: pointer;">Deal Name <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('won', 'company')" style="cursor: pointer;">Company <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('won', 'actualRevenue')" style="cursor: pointer;">Actual Revenue <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('won', 'closeDate')" style="cursor: pointer;">Close Date <span class="sort-indicator"></span></th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in won_deals %}
+                {% set client = item.client %}
+                <tr data-deal-name="{{ client.legal_name|lower }}" data-company="{{ client.legal_name|lower }}" data-status="Active">
+                    <td><a href="/clients/{{ client.id }}" class="link-primary">{{ client.legal_name }}</a></td>
+                    <td>{{ client.legal_name }}</td>
+                    <td class="currency">${{ "{:,.0f}".format(item.actual_revenue) }}</td>
+                    <td class="date">
+                        {% if item.close_date %}
+                            {{ item.close_date.strftime('%b %d, %Y') }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="/clients/{{ client.id }}/edit" class="btn btn-sm btn-secondary">Edit</a>
+                        <form method="post" action="/clients/{{ client.id }}/delete" style="display: inline;" onsubmit="return confirm('Delete this deal?');">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="no-deals">No won deals found</div>
+        {% endif %}
+    </div>
+</section>
+
+<div class="pipeline-arrow">↓</div>
+
+<!-- Lost Deals Section -->
+<section class="pipeline-section lost-section" id="lost-section">
+    <div class="section-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 class="section-title">Lost Deals Tracker</h2>
+        <button onclick="toggleSection('lost')" style="background: none; border: none; color: #dc2626; cursor: pointer; text-decoration: underline;">
+            <span id="lost-toggle">▼</span> Collapse
+        </button>
+    </div>
+    
+    <div class="summary-cards">
+        <div class="summary-card">
+            <div class="summary-label">Total Estimated Value Lost</div>
+            <div class="summary-value">${{ "{:,.0f}".format(total_lost_value) }}</div>
+        </div>
+        <div class="summary-card">
+            <div class="summary-label">Number of Lost Deals</div>
+            <div class="summary-value">{{ lost_count }}</div>
+        </div>
+    </div>
+
+    <div id="lost-table-container">
+        {% if lost_deals %}
+        <table class="deals-table" id="lost-table">
+            <thead>
+                <tr>
+                    <th onclick="sortTable('lost', 'dealName')" style="cursor: pointer;">Deal Name <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('lost', 'company')" style="cursor: pointer;">Company <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('lost', 'estimatedValue')" style="cursor: pointer;">Estimated Value <span class="sort-indicator"></span></th>
+                    <th onclick="sortTable('lost', 'lostDate')" style="cursor: pointer;">Lost Date <span class="sort-indicator"></span></th>
+                    <th>Reason for Loss</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in lost_deals %}
+                {% set client = item.client %}
+                <tr data-deal-name="{{ client.legal_name|lower }}" data-company="{{ client.legal_name|lower }}" data-status="Dead">
+                    <td><a href="/clients/{{ client.id }}" class="link-primary">{{ client.legal_name }}</a></td>
+                    <td>{{ client.legal_name }}</td>
+                    <td class="currency">${{ "{:,.0f}".format(item.estimated_value) }}</td>
+                    <td class="date">
+                        {% if item.lost_date %}
+                            {{ item.lost_date.strftime('%b %d, %Y') }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>{{ item.reason }}</td>
+                    <td>
+                        <a href="/clients/{{ client.id }}/edit" class="btn btn-sm btn-secondary">Edit</a>
+                        <form method="post" action="/clients/{{ client.id }}/delete" style="display: inline;" onsubmit="return confirm('Delete this deal?');">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="no-deals">No lost deals found</div>
+        {% endif %}
+    </div>
+</section>
+
+<style>
+.pipeline-section {
+    margin-bottom: 3rem;
+    padding: 2rem;
+    border: 2px solid;
+    background-color: #f8f8f8;
+}
+
+.prospects-section {
+    border-color: #2563eb;
+    background-color: #eff6ff;
+}
+
+.won-section {
+    border-color: #16a34a;
+    background-color: #f0fdf4;
+}
+
+.lost-section {
+    border-color: #dc2626;
+    background-color: #fef2f2;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid;
+}
+
+.prospects-section .section-header {
+    border-color: #2563eb;
+}
+
+.won-section .section-header {
+    border-color: #16a34a;
+}
+
+.lost-section .section-header {
+    border-color: #dc2626;
+}
+
+.section-title {
+    font-size: 2rem;
+    font-weight: normal;
+    letter-spacing: 0.5px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
+.prospects-section .section-title {
+    color: #2563eb;
+}
+
+.won-section .section-title {
+    color: #16a34a;
+}
+
+.lost-section .section-title {
+    color: #dc2626;
+}
+
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.summary-card {
+    background: white;
+    padding: 2rem;
+    border: 2px solid;
+    text-align: center;
+}
+
+.prospects-section .summary-card {
+    border-color: #2563eb;
+}
+
+.won-section .summary-card {
+    border-color: #16a34a;
+}
+
+.lost-section .summary-card {
+    border-color: #dc2626;
+}
+
+.summary-label {
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
+.summary-value {
+    font-size: 2.5rem;
+    font-weight: normal;
+    color: #000000;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
+.deals-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border: 1px solid #000000;
+    margin-top: 1.5rem;
+}
+
+.deals-table thead {
+    background-color: #000000;
+    color: white;
+}
+
+.deals-table th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: normal;
+    font-size: 0.95rem;
+    letter-spacing: 0.3px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
+.deals-table th:hover {
+    background-color: #333;
+}
+
+.deals-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.deals-table tbody tr:hover {
+    background-color: #f8f8f8;
+}
+
+.deals-table tbody tr:nth-child(even) {
+    background-color: #fafafa;
+}
+
+.deals-table tbody tr:nth-child(even):hover {
+    background-color: #f0f0f0;
+}
+
+.currency {
+    font-weight: normal;
+    font-family: 'Courier New', monospace;
+}
+
+.date {
+    font-style: italic;
+}
+
+.pipeline-arrow {
+    text-align: center;
+    font-size: 2rem;
+    color: #666;
+    margin: 2rem 0;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
+.no-deals {
+    text-align: center;
+    padding: 3rem;
+    color: #666;
+    font-style: italic;
+    background: white;
+    border: 1px solid #ddd;
+}
+
+.sort-indicator {
+    font-size: 0.8em;
+    margin-left: 0.25rem;
+}
+
+@media (max-width: 768px) {
+    .pipeline-section {
+        padding: 1rem;
+    }
+
+    .summary-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .deals-table {
+        font-size: 0.85rem;
+    }
+
+    .deals-table th,
+    .deals-table td {
+        padding: 0.5rem;
+    }
+
+    .summary-value {
+        font-size: 2rem;
+    }
+}
+</style>
+
+<script>
+// Set current date
+document.getElementById('current-date').textContent = new Date().toLocaleDateString('en-US', { 
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+});
+
+// Chart data preparation
+const wonDealsData = [
+    {% for item in won_deals %}
+    {
+        actual_revenue: {{ item.actual_revenue }},
+        close_date: "{{ item.close_date.strftime('%Y-%m-%d') if item.close_date else '' }}"
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+];
+
+const statusCounts = {
+    Prospect: {{ prospects_count }},
+    Won: {{ won_count }},
+    Lost: {{ lost_count }}
+};
+
+// Setup Charts
+function setupCharts() {
+    // Monthly Revenue Chart
+    const monthlyData = {};
+    wonDealsData.forEach(item => {
+        if (item.close_date) {
+            const date = new Date(item.close_date);
+            const month = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            monthlyData[month] = (monthlyData[month] || 0) + (item.actual_revenue || 0);
+        }
+    });
+
+    const monthlyCtx = document.getElementById('monthlyChart');
+    if (monthlyCtx && Object.keys(monthlyData).length > 0) {
+        new Chart(monthlyCtx, {
+            type: 'bar',
+            data: {
+                labels: Object.keys(monthlyData).sort(),
+                datasets: [{
+                    label: 'Revenue ($)',
+                    data: Object.keys(monthlyData).sort().map(m => monthlyData[m]),
+                    backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                    borderColor: 'rgba(34, 197, 94, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return '$' + value.toLocaleString();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Status Distribution Chart
+    const statusCtx = document.getElementById('statusChart');
+    if (statusCtx) {
+        new Chart(statusCtx, {
+            type: 'pie',
+            data: {
+                labels: ['Prospects', 'Won', 'Lost'],
+                datasets: [{
+                    data: [
+                        statusCounts.Prospect,
+                        statusCounts.Won,
+                        statusCounts.Lost
+                    ],
+                    backgroundColor: [
+                        'rgba(37, 99, 235, 0.8)',
+                        'rgba(34, 197, 94, 0.8)',
+                        'rgba(220, 38, 38, 0.8)'
+                    ],
+                    borderColor: [
+                        'rgba(37, 99, 235, 1)',
+                        'rgba(34, 197, 94, 1)',
+                        'rgba(220, 38, 38, 1)'
+                    ],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+}
+
+// Search and Filter
+function handleSearch() {
+    applyFilters();
+}
+
+function applyFilters() {
+    const searchTerm = document.getElementById('global-search').value.toLowerCase();
+    const statusFilter = document.getElementById('status-filter').value;
+    const dateFrom = document.getElementById('date-from').value;
+    const dateTo = document.getElementById('date-to').value;
+
+    ['prospects', 'won', 'lost'].forEach(section => {
+        const table = document.getElementById(`${section}-table`);
+        if (!table) return;
+        
+        const rows = table.querySelectorAll('tbody tr');
+        rows.forEach(row => {
+            let show = true;
+            
+            // Search filter
+            if (searchTerm) {
+                const dealName = row.dataset.dealName || '';
+                const company = row.dataset.company || '';
+                const notes = row.dataset.notes || '';
+                if (!dealName.includes(searchTerm) && !company.includes(searchTerm) && !notes.includes(searchTerm)) {
+                    show = false;
+                }
+            }
+            
+            // Status filter
+            if (statusFilter !== 'all') {
+                const rowStatus = row.dataset.status;
+                if (statusFilter === 'Active' && rowStatus !== 'Active') show = false;
+                else if (statusFilter === 'Prospect' && rowStatus !== 'Prospect') show = false;
+                else if (statusFilter === 'Dead' && rowStatus !== 'Dead') show = false;
+            }
+            
+            row.style.display = show ? '' : 'none';
+        });
+    });
+}
+
+// Sorting
+let sortState = {};
+
+function sortTable(section, columnKey) {
+    const table = document.getElementById(`${section}-table`);
+    if (!table) return;
+    
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr:not([style*="display: none"])'));
+    
+    const currentSort = sortState[`${section}-${columnKey}`];
+    const newSort = currentSort === 'asc' ? 'desc' : 'asc';
+    sortState[`${section}-${columnKey}`] = newSort;
+    
+    // Reset sort indicators
+    table.querySelectorAll('th').forEach(th => {
+        const indicator = th.querySelector('.sort-indicator');
+        if (indicator) indicator.textContent = '';
+    });
+    
+    // Set current sort indicator
+    const headerIndex = columnKey === 'dealName' ? 0 :
+                       columnKey === 'company' ? 1 :
+                       columnKey === 'estimatedValue' || columnKey === 'actualRevenue' ? 2 :
+                       columnKey === 'expectedCloseDate' || columnKey === 'closeDate' || columnKey === 'lostDate' ? 3 : -1;
+    
+    if (headerIndex >= 0) {
+        const headers = table.querySelectorAll('th');
+        if (headers[headerIndex]) {
+            const indicator = headers[headerIndex].querySelector('.sort-indicator');
+            if (indicator) indicator.textContent = newSort === 'asc' ? ' ↑' : ' ↓';
+        }
+    }
+    
+    rows.sort((a, b) => {
+        const aCells = a.querySelectorAll('td');
+        const bCells = b.querySelectorAll('td');
+        let aVal, bVal;
+        
+        if (columnKey === 'dealName' || columnKey === 'company') {
+            aVal = aCells[0].textContent.trim().toLowerCase();
+            bVal = bCells[0].textContent.trim().toLowerCase();
+        } else if (columnKey === 'estimatedValue' || columnKey === 'actualRevenue') {
+            aVal = parseFloat(aCells[2].textContent.replace(/[^0-9.-]/g, '')) || 0;
+            bVal = parseFloat(bCells[2].textContent.replace(/[^0-9.-]/g, '')) || 0;
+        } else {
+            // Date columns
+            aVal = aCells[3]?.textContent.trim() || '';
+            bVal = bCells[3]?.textContent.trim() || '';
+        }
+        
+        if (typeof aVal === 'string') {
+            return newSort === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        } else {
+            return newSort === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+    });
+    
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+// Toggle sections
+function toggleSection(section) {
+    const container = section === 'prospects' ? 
+        document.getElementById('prospects-table-container') :
+        section === 'won' ? 
+        document.getElementById('won-table-container') :
+        document.getElementById('lost-table-container');
+    const toggle = document.getElementById(`${section}-toggle`);
+    
+    if (container.style.display === 'none') {
+        container.style.display = '';
+        toggle.textContent = '▼';
+    } else {
+        container.style.display = 'none';
+        toggle.textContent = '▶';
+    }
+}
+
+// EmailJS Configuration - USER MUST UPDATE THESE
+const EMAILJS_SERVICE_ID = 'service_jojvmrq';
+const EMAILJS_TEMPLATE_ID = 'template_ieeu5be';
+
+// Check for due follow-ups and send reminders
+async function checkAndSendReminders() {
+    const today = new Date().toISOString().split('T')[0];
+    const prospectsTable = document.getElementById('prospects-table');
+    if (!prospectsTable) return;
+    
+    const rows = prospectsTable.querySelectorAll('tbody tr');
+    const dueDeals = [];
+    
+    // Find all due/overdue prospects
+    rows.forEach(row => {
+        const followUpDate = row.dataset.nextFollowUp;
+        const lastReminder = row.dataset.lastReminder;
+        const ownerEmail = row.dataset.ownerEmail;
+        const ownerName = row.dataset.ownerName;
+        
+        if (!followUpDate || !ownerEmail) return;
+        
+        // Check if follow-up is due (today or past) and reminder not sent today
+        if (followUpDate <= today && lastReminder !== today) {
+            dueDeals.push({
+                row: row,
+                clientId: row.dataset.clientId,
+                dealName: row.dataset.dealName,
+                company: row.dataset.company,
+                ownerName: ownerName || 'Deal Owner',
+                ownerEmail: ownerEmail,
+                estimatedValue: parseFloat(row.dataset.estimatedValue) || 0,
+                expectedCloseDate: row.dataset.expectedClose || 'Not set',
+                notes: row.dataset.notes || 'No notes',
+                followUpDate: followUpDate
+            });
+        }
+    });
+    
+    if (dueDeals.length === 0) {
+        showToast('No reminders due at this time.', 'info');
+        updateReminderBanner(0);
+        return;
+    }
+    
+    // Update banner
+    updateReminderBanner(dueDeals.length);
+    
+    // Send emails for each due deal
+    let sentCount = 0;
+    let errorCount = 0;
+    
+    for (const deal of dueDeals) {
+        try {
+            await sendReminderEmail(deal);
+            sentCount++;
+            
+            // Update last_reminder_sent via API call
+            await updateLastReminderSent(deal.clientId, today);
+            
+            // Update the row's last reminder date
+            deal.row.dataset.lastReminder = today;
+            
+            // Optionally advance follow-up date by 7 days
+            // Uncomment the line below if you want to auto-advance:
+            // await advanceFollowUpDate(deal.clientId, 7);
+            
+        } catch (error) {
+            console.error('Error sending reminder for', deal.dealName, ':', error);
+            errorCount++;
+        }
+    }
+    
+    // Show results
+    if (sentCount > 0) {
+        showToast(`Successfully sent ${sentCount} reminder email(s)!`, 'success');
+    }
+    if (errorCount > 0) {
+        showToast(`Failed to send ${errorCount} reminder(s). Check console for details.`, 'error');
+    }
+    
+    // Refresh page after a short delay to show updated reminder dates
+    if (sentCount > 0) {
+        setTimeout(() => {
+            window.location.reload();
+        }, 2000);
+    }
+}
+
+// Send reminder email via EmailJS
+async function sendReminderEmail(deal) {
+    const templateParams = {
+        deal_name: deal.dealName,
+        company: deal.company,
+        estimated_value: '$' + deal.estimatedValue.toLocaleString(),
+        notes: deal.notes.substring(0, 200), // Limit notes length
+        owner_name: deal.ownerName,
+        follow_up_date: formatDate(deal.followUpDate),
+        expected_close_date: deal.expectedCloseDate === 'Not set' ? 'Not set' : formatDate(deal.expectedCloseDate),
+        to_email: deal.ownerEmail
+    };
+    
+    return emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, templateParams);
+}
+
+// Update last_reminder_sent field via API
+async function updateLastReminderSent(clientId, date) {
+    // Since we're using a server-side app, we need to make an API call
+    // For now, we'll use a simple fetch to update the field
+    // You may need to create an endpoint for this, or we can use the existing update-field endpoint
+    try {
+        const formData = new FormData();
+        formData.append('field', 'last_reminder_sent');
+        formData.append('value', date);
+        
+        const response = await fetch(`/clients/${clientId}/update-field`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to update reminder date');
+        }
+    } catch (error) {
+        console.error('Error updating reminder date:', error);
+        // Non-critical, continue anyway
+    }
+}
+
+// Format date for display
+function formatDate(dateString) {
+    if (!dateString) return 'Not set';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Update reminder banner
+function updateReminderBanner(count) {
+    const banner = document.getElementById('reminder-banner');
+    const countSpan = document.getElementById('reminder-count');
+    
+    if (count > 0) {
+        banner.style.display = 'block';
+        countSpan.textContent = count;
+    } else {
+        banner.style.display = 'none';
+    }
+}
+
+// Simple toast notification
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 1rem 1.5rem;
+        background: ${type === 'success' ? '#16a34a' : type === 'error' ? '#dc2626' : '#2563eb'};
+        color: white;
+        border: 2px solid ${type === 'success' ? '#15803d' : type === 'error' ? '#b91c1c' : '#1d4ed8'};
+        border-radius: 0;
+        font-family: Georgia, 'Times New Roman', Times, serif;
+        z-index: 10000;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.remove();
+    }, 5000);
+}
+
+// Check for due reminders on page load
+function checkDueRemindersOnLoad() {
+    const today = new Date().toISOString().split('T')[0];
+    const prospectsTable = document.getElementById('prospects-table');
+    if (!prospectsTable) return;
+    
+    const rows = prospectsTable.querySelectorAll('tbody tr');
+    let dueCount = 0;
+    
+    rows.forEach(row => {
+        const followUpDate = row.dataset.nextFollowUp;
+        const lastReminder = row.dataset.lastReminder;
+        const ownerEmail = row.dataset.ownerEmail;
+        
+        if (followUpDate && ownerEmail && followUpDate <= today && lastReminder !== today) {
+            dueCount++;
+        }
+    });
+    
+    updateReminderBanner(dueCount);
+}
+
+// Update sorting to handle new columns
+function sortTable(section, columnKey) {
+    const table = document.getElementById(`${section}-table`);
+    if (!table) return;
+    
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr:not([style*="display: none"])'));
+    
+    const currentSort = sortState[`${section}-${columnKey}`];
+    const newSort = currentSort === 'asc' ? 'desc' : 'asc';
+    sortState[`${section}-${columnKey}`] = newSort;
+    
+    // Reset sort indicators
+    table.querySelectorAll('th').forEach(th => {
+        const indicator = th.querySelector('.sort-indicator');
+        if (indicator) indicator.textContent = '';
+    });
+    
+    // Set current sort indicator
+    const headerIndex = columnKey === 'dealName' ? 0 :
+                       columnKey === 'company' ? 1 :
+                       columnKey === 'ownerName' ? 2 :
+                       columnKey === 'nextFollowUp' ? 3 :
+                       columnKey === 'estimatedValue' || columnKey === 'actualRevenue' ? 4 :
+                       columnKey === 'expectedCloseDate' || columnKey === 'closeDate' || columnKey === 'lostDate' ? 5 : -1;
+    
+    if (headerIndex >= 0) {
+        const headers = table.querySelectorAll('th');
+        if (headers[headerIndex]) {
+            const indicator = headers[headerIndex].querySelector('.sort-indicator');
+            if (indicator) indicator.textContent = newSort === 'asc' ? ' ↑' : ' ↓';
+        }
+    }
+    
+    rows.sort((a, b) => {
+        const aCells = a.querySelectorAll('td');
+        const bCells = b.querySelectorAll('td');
+        let aVal, bVal;
+        
+        if (columnKey === 'dealName' || columnKey === 'company' || columnKey === 'ownerName') {
+            const cellIndex = columnKey === 'dealName' ? 0 : columnKey === 'company' ? 1 : 2;
+            aVal = aCells[cellIndex].textContent.trim().toLowerCase();
+            bVal = bCells[cellIndex].textContent.trim().toLowerCase();
+        } else if (columnKey === 'nextFollowUp') {
+            aVal = a.dataset.nextFollowUp || '';
+            bVal = b.dataset.nextFollowUp || '';
+        } else if (columnKey === 'estimatedValue' || columnKey === 'actualRevenue') {
+            aVal = parseFloat(aCells[4].textContent.replace(/[^0-9.-]/g, '')) || 0;
+            bVal = parseFloat(bCells[4].textContent.replace(/[^0-9.-]/g, '')) || 0;
+        } else {
+            // Date columns
+            const cellIndex = columnKey === 'expectedCloseDate' ? 5 : 3;
+            aVal = aCells[cellIndex]?.textContent.trim() || '';
+            bVal = bCells[cellIndex]?.textContent.trim() || '';
+        }
+        
+        if (typeof aVal === 'string') {
+            return newSort === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        } else {
+            return newSort === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+    });
+    
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+// Initialize charts and check reminders on load
+document.addEventListener('DOMContentLoaded', function() {
+    setupCharts();
+    checkDueRemindersOnLoad();
+});
+</script>
+
+<style>
+.overdue {
+    color: #dc2626;
+    font-weight: bold;
+}
+</style>
+{% endblock %}

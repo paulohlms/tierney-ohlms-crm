@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Tierney & Ohlms CRM{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Settings</h1>
+    <button onclick="openUserModal()" class="btn btn-primary">+ Add User</button>
+</div>
+
+{% set error_param = request.query_params.get('error') %}
+{% set error_details = request.query_params.get('details', '') %}
+{% if error_param %}
+<div class="alert alert-error" style="background: #fee; border: 2px solid #dc2626; padding: 1rem; margin-bottom: 1rem; color: #dc2626;">
+    {% if error_param == 'email_exists' %}
+        ❌ Error: Email already exists. Please use a different email address.
+    {% elif error_param == 'password_error' %}
+        ❌ Error: Password hashing failed. Please try again or contact support.
+    {% elif error_param == 'creation_failed' %}
+        ❌ Error: Failed to create user. {% if error_details %}Details: {{ error_details }}{% endif %}
+    {% elif error_param == 'cannot_delete_self' %}
+        ❌ Error: You cannot delete your own account
+    {% else %}
+        ❌ Error: {{ error_param }}{% if error_details %} - {{ error_details }}{% endif %}
+    {% endif %}
+</div>
+{% endif %}
+
+{% set success_param = request.query_params.get('success') %}
+{% if success_param %}
+<div class="alert alert-success" style="background: #f0fdf4; border: 2px solid #16a34a; padding: 1rem; margin-bottom: 1rem; color: #16a34a;">
+    {% if success_param == 'user_created' %}
+        User created successfully!
+    {% elif success_param == 'user_updated' %}
+        User updated successfully!
+    {% elif success_param == 'user_deleted' %}
+        User deleted successfully!
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Users List -->
+<div class="detail-section">
+    <h2 style="margin-bottom: 1.5rem;">Users</h2>
+    
+    {% if users %}
+    <div style="overflow-x: auto;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Permissions</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr {% if not u.active %}style="opacity: 0.5;"{% endif %}>
+                    <td>{{ u.name }}</td>
+                    <td>{{ u.email }}</td>
+                    <td>
+                        <span style="padding: 0.25rem 0.5rem; background: {% if u.role == 'Admin' %}#dc2626{% elif u.role == 'Manager' %}#2563eb{% else %}#666{% endif %}; color: white; border-radius: 0; font-size: 0.85rem;">
+                            {{ u.role }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if u.active %}
+                            <span style="color: #16a34a; font-weight: bold;">Active</span>
+                        {% else %}
+                            <span style="color: #666;">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% set perms = (u.permissions|from_json) if u.permissions else {} %}
+                        <span style="font-size: 0.85rem; color: #666;">
+                            {{ perms|length }} permission(s)
+                        </span>
+                    </td>
+                    <td>
+                        <button onclick="openEditUserModal({{ u.id }}, {{ u.name|tojson }}, {{ u.email|tojson }}, {{ u.role|tojson }}, {{ 'true' if u.active else 'false' }}, {{ u.permissions|tojson if u.permissions else '{}' }})" class="btn btn-sm btn-secondary">Edit</button>
+                        {% if u.id != user.id %}
+                        <form method="post" action="/settings/users/{{ u.id }}/delete" style="display: inline;" onsubmit="return confirm('Deactivate this user?');">
+                            <button type="submit" class="btn btn-sm btn-danger">Deactivate</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="text-align: center; color: #666; padding: 2rem;">No users found.</p>
+    {% endif %}
+</div>
+
+<!-- Add User Modal -->
+<div id="user-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+    <div style="max-width: 800px; margin: 2rem auto; background: white; padding: 2rem; border: 2px solid #000;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h2 id="modal-title">Add User</h2>
+            <button onclick="closeUserModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+        </div>
+        
+        <form id="user-form" method="post" action="">
+            <input type="hidden" id="form-user-id" name="user_id" value="">
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                <div class="form-group">
+                    <label for="form-name">Name *</label>
+                    <input type="text" id="form-name" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="form-email">Email *</label>
+                    <input type="email" id="form-email" name="email" required>
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                <div class="form-group">
+                    <label for="form-role">Role *</label>
+                    <select id="form-role" name="role" required onchange="updatePermissionsForRole()">
+                        <option value="Staff">Staff</option>
+                        <option value="Manager">Manager</option>
+                        <option value="Admin">Admin</option>
+                        <option value="Limited">Limited</option>
+                    </select>
+                </div>
+                <div class="form-group" id="password-group">
+                    <label for="form-password">Password *</label>
+                    <input type="password" id="form-password" name="password">
+                    <small style="color: #666;">Leave blank when editing to keep current password</small>
+                </div>
+            </div>
+            
+            <div class="form-group" id="active-group" style="display: none;">
+                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="checkbox" id="form-active" name="active">
+                    <span>Active</span>
+                </label>
+            </div>
+            
+            <!-- Permissions -->
+            <div style="margin-top: 2rem; margin-bottom: 1rem;">
+                <h3 style="margin-bottom: 1rem;">Permissions</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
+                    {% for perm_key, perm_label in all_permissions %}
+                    <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border: 1px solid #ddd;">
+                        <input type="checkbox" id="perm_{{ perm_key }}" name="perm_{{ perm_key }}" value="on">
+                        <span style="font-size: 0.9rem;">{{ perm_label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+                <button type="button" onclick="closeUserModal()" class="btn btn-secondary">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openUserModal() {
+    document.getElementById('user-modal').style.display = 'block';
+    document.getElementById('modal-title').textContent = 'Add User';
+    document.getElementById('user-form').action = '/settings/users/new';
+    document.getElementById('user-form').reset();
+    document.getElementById('form-password').required = true;
+    document.getElementById('password-group').style.display = 'block';
+    document.getElementById('active-group').style.display = 'none';
+    document.getElementById('form-role').value = 'Staff';
+    updatePermissionsForRole();
+}
+
+function openEditUserModal(userId, name, email, role, active, permissionsJson) {
+    const permissions = typeof permissionsJson === 'string' ? JSON.parse(permissionsJson) : permissionsJson;
+    
+    document.getElementById('user-modal').style.display = 'block';
+    document.getElementById('modal-title').textContent = 'Edit User';
+    document.getElementById('user-form').action = `/settings/users/${userId}/edit`;
+    document.getElementById('form-user-id').value = userId;
+    document.getElementById('form-name').value = name;
+    document.getElementById('form-email').value = email;
+    document.getElementById('form-email').readOnly = true;
+    document.getElementById('form-role').value = role;
+    document.getElementById('form-active').checked = active;
+    document.getElementById('form-password').required = false;
+    document.getElementById('password-group').style.display = 'block';
+    document.getElementById('active-group').style.display = 'block';
+    
+    // Set permissions
+    Object.keys(permissions).forEach(key => {
+        const checkbox = document.getElementById(`perm_${key}`);
+        if (checkbox) {
+            checkbox.checked = permissions[key];
+        }
+    });
+    
+    updatePermissionsForRole();
+}
+
+function closeUserModal() {
+    document.getElementById('user-modal').style.display = 'none';
+    document.getElementById('form-email').readOnly = false;
+}
+
+function updatePermissionsForRole() {
+    const role = document.getElementById('form-role').value;
+    const isAdmin = role === 'Admin';
+    
+    // If Admin, check all permissions and disable them
+    if (isAdmin) {
+        document.querySelectorAll('input[type="checkbox"][name^="perm_"]').forEach(cb => {
+            cb.checked = true;
+            cb.disabled = true;
+        });
+    } else {
+        // Enable all checkboxes
+        document.querySelectorAll('input[type="checkbox"][name^="perm_"]').forEach(cb => {
+            cb.disabled = false;
+        });
+        
+        // Set defaults based on role
+        if (role === 'Staff') {
+            // Default staff permissions
+            document.getElementById('perm_view_own_timesheets').checked = true;
+            document.getElementById('perm_create_timesheets').checked = true;
+            document.getElementById('perm_edit_own_timesheets').checked = true;
+            document.getElementById('perm_delete_own_timesheets').checked = true;
+        }
+    }
+}
+
+// Close modal when clicking outside
+document.getElementById('user-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeUserModal();
+    }
+});
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    updatePermissionsForRole();
+});
+</script>
+
+<style>
+.alert {
+    border-radius: 0;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+}
+</style>
+{% endblock %}
+

@@ -1,0 +1,68 @@
+═══════════════════════════════════════════════════════════
+  SIMPLE START GUIDE - CRM TOOL FOR ACCOUNTANTS
+═══════════════════════════════════════════════════════════
+
+STEP 1: Install Python
+───────────────────────
+1. Go to: https://www.python.org/downloads/
+2. Click "Download Python" (big yellow button)
+3. Run the downloaded file
+4. ✅ CHECK THE BOX: "Add Python to PATH"
+5. Click "Install Now"
+6. Wait, then click "Close"
+
+STEP 2: Open PowerShell
+───────────────────────
+1. Press Windows key
+2. Type: powershell
+3. Press Enter
+
+STEP 3: Go to Your Folder
+──────────────────────────
+Copy and paste this line, then press Enter:
+
+    cd "C:\Users\PaulOhlms\Desktop\CRM Tool"
+
+STEP 4: Install Tools
+─────────────────────
+Copy and paste this line, then press Enter:
+
+    python -m pip install -r requirements.txt
+
+Wait for it to finish (2-3 minutes)
+
+STEP 5: Set Up Database
+───────────────────────
+Copy and paste this line, then press Enter:
+
+    python seed.py
+
+STEP 6: Start the App
+──────────────────────
+Copy and paste this line, then press Enter:
+
+    python -m uvicorn main:app --reload
+
+You'll see: "Uvicorn running on http://127.0.0.1:8000"
+KEEP THIS WINDOW OPEN!
+
+STEP 7: Open in Browser
+────────────────────────
+1. Open your web browser
+2. Type in address bar: http://localhost:8000
+3. Press Enter
+
+STEP 8: Log In
+──────────────
+Email:    admin@firm.com
+Password: admin123
+
+═══════════════════════════════════════════════════════════
+
+That's it! You should see your client list.
+
+To stop the app later: Press Ctrl+C in the PowerShell window
+To start again: Repeat Steps 2, 3, and 6
+
+═══════════════════════════════════════════════════════════
+
