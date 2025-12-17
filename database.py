@@ -1,21 +1,31 @@
 """
 Database configuration and session management.
 
-Uses SQLite for simplicity - perfect for a small internal tool.
+Uses PostgreSQL for production (hosted environments) or SQLite for local development.
 SQLAlchemy provides ORM capabilities and relationship management.
 """
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# SQLite database file - stored in project root
-SQLALCHEMY_DATABASE_URL = "sqlite:///./crm.db"
+# Use PostgreSQL if DATABASE_URL is set (production/hosting), otherwise SQLite (local)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Create engine with check_same_thread=False for SQLite compatibility with FastAPI
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, 
-    connect_args={"check_same_thread": False}
-)
+if DATABASE_URL:
+    # PostgreSQL (for production/hosting - Render, Railway, etc.)
+    # Render provides DATABASE_URL automatically when PostgreSQL is connected
+    # Convert postgres:// to postgresql:// (SQLAlchemy requirement)
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    engine = create_engine(DATABASE_URL)
+else:
+    # SQLite (for local development)
+    SQLALCHEMY_DATABASE_URL = "sqlite:///./crm.db"
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL,
+        connect_args={"check_same_thread": False}
+    )
 
 # Session factory - each request will create a new session
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
