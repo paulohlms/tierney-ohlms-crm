@@ -100,3 +100,6 @@ Start-Process explorer.exe -ArgumentList $destinationFolder
 Write-Host ""
 Write-Host "Done! The folder has been opened for you." -ForegroundColor Green
 
+
+
+

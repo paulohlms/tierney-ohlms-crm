@@ -1,108 +1,75 @@
 {% extends "base.html" %}
 
-{% block title %}{% if client %}Edit{% else %}New{% endif %} Client - Tierney & Ohlms CRM{% endblock %}
+{% block title %}New Client - CRM Tool{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1>{% if client %}Edit Client{% else %}New Client{% endif %}</h1>
-    <a href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}" class="btn btn-secondary">Cancel</a>
+    <h1>New Client</h1>
+    <a href="/clients" class="btn btn-secondary">Back to Clients</a>
 </div>
 
-<form method="post" action="{% if client %}/clients/{{ client.id }}/edit{% else %}/clients/new{% endif %}" class="form">
+<form method="post" action="/clients/new" class="form-container">
+    <h2>Basic Information</h2>
     <div class="form-group">
         <label for="legal_name">Legal Name *</label>
-        <input type="text" id="legal_name" name="legal_name" value="{{ client.legal_name if client else '' }}" required>
+        <input type="text" id="legal_name" name="legal_name" required>
+    </div>
+    
+    <div class="form-row">
+        <div class="form-group">
+            <label for="entity_type">Entity Type</label>
+            <input type="text" id="entity_type" name="entity_type">
+        </div>
+        <div class="form-group">
+            <label for="ein_last4">EIN (Last 4)</label>
+            <input type="text" id="ein_last4" name="ein_last4" maxlength="4">
+        </div>
+        <div class="form-group">
+            <label for="fiscal_year_end">Fiscal Year End</label>
+            <input type="text" id="fiscal_year_end" name="fiscal_year_end" placeholder="MM/DD">
+        </div>
+    </div>
+    
+    <h2>Contact Information</h2>
+    <!-- IMPROVEMENT 1: Autopopulated from session if available -->
+    <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="{{ contact_data.email if contact_data else '' }}">
     </div>
     
     <div class="form-group">
-        <label for="entity_type">Entity Type</label>
-        <select id="entity_type" name="entity_type">
-            <option value="">Select...</option>
-            <option value="LLC" {% if client and client.entity_type == 'LLC' %}selected{% endif %}>LLC</option>
-            <option value="S-Corp" {% if client and client.entity_type == 'S-Corp' %}selected{% endif %}>S-Corp</option>
-            <option value="C-Corp" {% if client and client.entity_type == 'C-Corp' %}selected{% endif %}>C-Corp</option>
-            <option value="Partnership" {% if client and client.entity_type == 'Partnership' %}selected{% endif %}>Partnership</option>
-            <option value="Sole Proprietorship" {% if client and client.entity_type == 'Sole Proprietorship' %}selected{% endif %}>Sole Proprietorship</option>
-            <option value="Unknown" {% if client and client.entity_type == 'Unknown' %}selected{% endif %}>Unknown</option>
-        </select>
+        <label for="phone">Phone</label>
+        <input type="tel" id="phone" name="phone" value="{{ contact_data.phone if contact_data else '' }}">
     </div>
     
     <div class="form-group">
-        <label for="fiscal_year_end">Fiscal Year End</label>
-        <input type="text" id="fiscal_year_end" name="fiscal_year_end" placeholder="e.g., 12/31" value="{{ client.fiscal_year_end if client else '' }}">
+        <label for="address">Address</label>
+        <input type="text" id="address" name="address" value="{{ contact_data.address if contact_data else '' }}">
+    </div>
+    
+    <div class="form-row">
+        <div class="form-group">
+            <label for="city">City</label>
+            <input type="text" id="city" name="city" value="{{ contact_data.city if contact_data else '' }}">
+        </div>
+        <div class="form-group">
+            <label for="state">State</label>
+            <input type="text" id="state" name="state" value="{{ contact_data.state if contact_data else '' }}">
+        </div>
+        <div class="form-group">
+            <label for="zip">Zip Code</label>
+            <input type="text" id="zip" name="zip" value="{{ contact_data.zip if contact_data else '' }}">
+        </div>
     </div>
     
     <div class="form-group">
-        <label for="owner_name">Owner Name <span id="owner-name-required" style="color: red; display: none;">*</span></label>
-        <input type="text" id="owner_name" name="owner_name" value="{{ client.owner_name if client else '' }}" placeholder="e.g., John Smith">
-        <small style="color: #666;">Person responsible for this deal (receives reminder emails)</small>
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes" rows="4"></textarea>
     </div>
-    
-    <div class="form-group">
-        <label for="owner_email">Owner Email <span id="owner-email-required" style="color: red; display: none;">*</span></label>
-        <input type="email" id="owner_email" name="owner_email" value="{{ client.owner_email if client else '' }}" placeholder="e.g., john@firm.com">
-        <small style="color: #666;">Email address for follow-up reminders</small>
-    </div>
-    
-    <div class="form-group">
-        <label for="next_follow_up_date">Next Follow-Up Date <span id="follow-up-required" style="color: red; display: none;">*</span></label>
-        <input type="date" id="next_follow_up_date" name="next_follow_up_date" value="{{ client.next_follow_up_date.strftime('%Y-%m-%d') if client and client.next_follow_up_date else '' }}" min="{{ today.strftime('%Y-%m-%d') if today else '' }}">
-        <small style="color: #666;">For prospects - when to follow up next (cannot be in the past)</small>
-    </div>
-    
-    <div class="form-group">
-        <label for="status">Status *</label>
-        <select id="status" name="status" required onchange="toggleProspectFields()">
-            <option value="Prospect" {% if not client or client.status == 'Prospect' %}selected{% endif %}>Prospect</option>
-            <option value="Active" {% if client and client.status == 'Active' %}selected{% endif %}>Active</option>
-            <option value="Paused" {% if client and client.status == 'Paused' %}selected{% endif %}>Paused</option>
-            <option value="Former" {% if client and client.status == 'Former' %}selected{% endif %}>Former</option>
-            <option value="Dead" {% if client and client.status == 'Dead' %}selected{% endif %}>Dead</option>
-        </select>
-    </div>
-    
-    <script>
-    function toggleProspectFields() {
-        const status = document.getElementById('status').value;
-        const isProspect = status === 'Prospect';
-        const ownerName = document.getElementById('owner_name');
-        const ownerEmail = document.getElementById('owner_email');
-        const followUpDate = document.getElementById('next_follow_up_date');
-        const ownerNameRequired = document.getElementById('owner-name-required');
-        const ownerEmailRequired = document.getElementById('owner-email-required');
-        const followUpRequired = document.getElementById('follow-up-required');
-        
-        if (isProspect) {
-            ownerName.required = true;
-            ownerEmail.required = true;
-            followUpDate.required = true;
-            ownerNameRequired.style.display = 'inline';
-            ownerEmailRequired.style.display = 'inline';
-            followUpRequired.style.display = 'inline';
-        } else {
-            ownerName.required = false;
-            ownerEmail.required = false;
-            followUpDate.required = false;
-            ownerNameRequired.style.display = 'none';
-            ownerEmailRequired.style.display = 'none';
-            followUpRequired.style.display = 'none';
-        }
-    }
-    
-    // Set min date to today for follow-up date
-    document.addEventListener('DOMContentLoaded', function() {
-        const today = new Date().toISOString().split('T')[0];
-        const followUpInput = document.getElementById('next_follow_up_date');
-        if (followUpInput && !followUpInput.value) {
-            followUpInput.min = today;
-        }
-        toggleProspectFields();
-    });
-    </script>
     
     <div class="form-actions">
-        <button type="submit" class="btn btn-primary">{% if client %}Update{% else %}Create{% endif %} Client</button>
-        <a href="{% if client %}/clients/{{ client.id }}{% else %}/clients{% endif %}" class="btn btn-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">Create Client</button>
+        <a href="/clients" class="btn btn-secondary">Cancel</a>
     </div>
 </form>
 {% endblock %}

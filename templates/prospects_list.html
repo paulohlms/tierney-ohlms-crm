@@ -1,123 +1,46 @@
 {% extends "base.html" %}
 
-{% block title %}Prospects - Tierney & Ohlms CRM{% endblock %}
+{% block title %}Prospects - CRM Tool{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1>Sales Pipeline - Prospects</h1>
-    <a href="/clients/new?status=Prospect" class="btn btn-primary">+ New Prospect</a>
-</div>
-
-<!-- Pipeline Summary Cards -->
-<div class="summary-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-    <div class="summary-card" style="background: #1a1a1a; border: 1px solid #333; padding: 1.5rem; border-radius: 4px;">
-        <div style="font-size: 0.9rem; color: #999; margin-bottom: 0.5rem;">Total Prospects</div>
-        <div style="font-size: 2rem; font-weight: bold; color: #fff;">{{ total_count }}</div>
-    </div>
-    <div class="summary-card" style="background: #1a1a1a; border: 1px solid #333; padding: 1.5rem; border-radius: 4px;">
-        <div style="font-size: 0.9rem; color: #999; margin-bottom: 0.5rem;">Total Estimated Value</div>
-        <div style="font-size: 2rem; font-weight: bold; color: #fff;">${{ total_estimated_formatted }}</div>
-    </div>
-</div>
-
-<div class="filters-section">
-    <form method="get" action="/prospects" class="filters-form">
-        <div class="filter-group">
-            <label>Search:</label>
-            <input type="text" name="search" placeholder="Prospect name..." value="{{ search or '' }}" class="filter-input">
-        </div>
-        
-        <div class="filter-group">
-            <label>Stage:</label>
-            <select name="stage" class="filter-select">
-                <option value="">All Stages</option>
-                <option value="New" {% if stage_filter == 'New' %}selected{% endif %}>New</option>
-                <option value="Contacted" {% if stage_filter == 'Contacted' %}selected{% endif %}>Contacted</option>
-                <option value="Proposal" {% if stage_filter == 'Proposal' %}selected{% endif %}>Proposal</option>
-                <option value="Negotiation" {% if stage_filter == 'Negotiation' %}selected{% endif %}>Negotiation</option>
-            </select>
-        </div>
-        
-        <div class="filter-group">
-            <label>Owner:</label>
-            <select name="owner" class="filter-select">
-                <option value="">All Owners</option>
-                {% for o in owners %}
-                <option value="{{ o }}" {% if owner_filter == o %}selected{% endif %}>{{ o }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        
-        <div class="filter-group">
-            <label>Follow-Up:</label>
-            <select name="follow_up" class="filter-select">
-                <option value="">All</option>
-                <option value="needed" {% if follow_up_filter == 'needed' %}selected{% endif %}>Needed</option>
-                <option value="overdue" {% if follow_up_filter == 'overdue' %}selected{% endif %}>Overdue</option>
-            </select>
-        </div>
-        
-        <input type="hidden" name="sort_by" value="{{ sort_by }}">
-        <input type="hidden" name="sort_order" value="{{ sort_order }}">
-        
-        <button type="submit" class="btn btn-secondary">Apply Filters</button>
-        <a href="/prospects" class="btn btn-link">Clear</a>
-        <a href="/prospects/export?{% if search %}search={{ search }}&{% endif %}{% if stage_filter %}stage={{ stage_filter }}&{% endif %}{% if owner_filter %}owner={{ owner_filter }}&{% endif %}{% if follow_up_filter %}follow_up={{ follow_up_filter }}{% endif %}" class="btn btn-secondary">Export CSV</a>
-    </form>
+    <h1>Prospects</h1>
+    <a href="/prospects/new" class="btn btn-primary">+ New Prospect</a>
 </div>
 
 {% if prospects %}
-<table class="data-table" id="prospects-table">
+<table class="data-table">
     <thead>
         <tr>
-            <th>
-                <a href="?{% if search %}search={{ search }}&{% endif %}{% if stage_filter %}stage={{ stage_filter }}&{% endif %}{% if owner_filter %}owner={{ owner_filter }}&{% endif %}{% if follow_up_filter %}follow_up={{ follow_up_filter }}&{% endif %}sort_by=name&sort_order={% if sort_by == 'name' and sort_order == 'asc' %}desc{% else %}asc{% endif %}" class="sort-link">
-                    Company Name {% if sort_by == 'name' %}{% if sort_order == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
-                </a>
-            </th>
+            <th>Name</th>
+            <th>Company</th>
+            <th>Email</th>
+            <th>Phone</th>
             <th>Stage</th>
-            <th>Owner</th>
+            <th>Estimated Revenue</th>
             <th>Next Follow-Up</th>
-            <th>Estimated Value</th>
-            <th>Expected Close</th>
             <th>Actions</th>
         </tr>
     </thead>
     <tbody>
-        {% for item in prospects %}
-        {% set client = item.client %}
+        {% for prospect in prospects %}
         <tr>
-            <td><a href="/clients/{{ client.id }}" class="link-primary">{{ client.legal_name }}</a></td>
+            <td>{{ prospect.name }}</td>
+            <td>{{ prospect.company or '-' }}</td>
+            <td>{{ prospect.email or '-' }}</td>
+            <td>{{ prospect.phone or '-' }}</td>
+            <td><span class="status-badge status-{{ prospect.stage.lower().replace(' ', '-') }}">{{ prospect.stage }}</span></td>
             <td>
-                <span class="status-badge status-{{ item.stage.lower() }}">{{ item.stage }}</span>
-            </td>
-            <td>{{ client.owner_name or '-' }}</td>
-            <td class="date {% if client.next_follow_up_date and client.next_follow_up_date <= today %}overdue{% elif client.next_follow_up_date and client.next_follow_up_date == today %}due-today{% endif %}">
-                {% if client.next_follow_up_date %}
-                    {{ client.next_follow_up_date.strftime('%m/%d/%Y') }}
-                    {% if client.next_follow_up_date < today %}
-                        <span style="color: #ff4444; margin-left: 0.5rem;">⚠ Overdue</span>
-                    {% elif client.next_follow_up_date == today %}
-                        <span style="color: #ffaa00; margin-left: 0.5rem;">Due Today</span>
-                    {% endif %}
+                <!-- IMPROVEMENT 4: Only show revenue if it exists -->
+                {% if prospect.estimated_revenue %}
+                    ${{ "{:,.2f}".format(prospect.estimated_revenue) }}
                 {% else %}
-                    <span style="color: #666;">Not set</span>
+                    <span class="text-muted">Not specified</span>
                 {% endif %}
             </td>
-            <td>${{ item.estimated_revenue_formatted }}</td>
+            <td>{{ prospect.next_follow_up.strftime('%Y-%m-%d') if prospect.next_follow_up else '-' }}</td>
             <td>
-                {% if item.expected_close_date %}
-                    {{ item.expected_close_date.strftime('%m/%d/%Y') }}
-                {% else %}
-                    <span style="color: #666;">-</span>
-                {% endif %}
-            </td>
-            <td>
-                <a href="/clients/{{ client.id }}" class="btn btn-sm btn-secondary">View</a>
-                <a href="/clients/{{ client.id }}/edit" class="btn btn-sm btn-primary">Edit</a>
-                <form method="post" action="/prospects/{{ client.id }}/convert" style="display: inline;" onsubmit="return confirm('Convert this prospect to an active client?');">
-                    <button type="submit" class="btn btn-sm btn-success">Convert to Client</button>
-                </form>
+                <a href="/prospects/{{ prospect.id }}" class="btn btn-sm btn-secondary">View</a>
             </td>
         </tr>
         {% endfor %}
@@ -125,24 +48,9 @@
 </table>
 {% else %}
 <div class="empty-state">
-    <p>No prospects found. <a href="/clients/new?status=Prospect">Add a new prospect</a> to get started.</p>
+    <p>No prospects found.</p>
+    <a href="/prospects/new" class="btn btn-primary">Create Your First Prospect</a>
 </div>
 {% endif %}
-
-<style>
-.status-badge {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    border-radius: 4px;
-    font-size: 0.85rem;
-    font-weight: 500;
-}
-.status-new { background: #333; color: #fff; }
-.status-contacted { background: #0066cc; color: #fff; }
-.status-proposal { background: #0066cc; color: #fff; }
-.status-negotiation { background: #ffaa00; color: #000; }
-.date.overdue { color: #ff4444; }
-.date.due-today { color: #ffaa00; }
-</style>
 {% endblock %}
 

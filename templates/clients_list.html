@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Clients - Tierney & Ohlms CRM{% endblock %}
+{% block title %}Clients - CRM Tool{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -8,128 +8,39 @@
     <a href="/clients/new" class="btn btn-primary">+ New Client</a>
 </div>
 
-<div class="filters-section">
-    <form method="get" action="/clients" class="filters-form">
-        <div class="filter-group">
-            <label>Search:</label>
-            <input type="text" name="search" placeholder="Client name..." value="{{ search or '' }}" class="filter-input">
-        </div>
-        
-        <div class="filter-group">
-            <label>Status:</label>
-            <select name="status" class="filter-select">
-                <option value="">All</option>
-                {% for s in statuses %}
-                <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        
-        <div class="filter-group">
-            <label>Entity Type:</label>
-            <select name="entity_type" class="filter-select">
-                <option value="">All</option>
-                {% for et in entity_types %}
-                <option value="{{ et }}" {% if entity_type_filter == et %}selected{% endif %}>{{ et }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        
-        <div class="filter-group">
-            <label>Follow-Up:</label>
-            <select name="follow_up" class="filter-select">
-                <option value="">All</option>
-                <option value="needed" {% if follow_up_filter == 'needed' %}selected{% endif %}>Needed</option>
-                <option value="overdue" {% if follow_up_filter == 'overdue' %}selected{% endif %}>Overdue</option>
-            </select>
-        </div>
-        
-        <input type="hidden" name="sort_by" value="{{ sort_by }}">
-        <input type="hidden" name="sort_order" value="{{ sort_order }}">
-        
-        <button type="submit" class="btn btn-secondary">Apply Filters</button>
+<div class="search-box">
+    <form method="get" action="/clients" class="search-form">
+        <input type="text" name="search" placeholder="Search by client name..." value="{{ search or '' }}" class="search-input">
+        <button type="submit" class="btn btn-secondary">Search</button>
+        {% if search %}
         <a href="/clients" class="btn btn-link">Clear</a>
-        <a href="/clients/export?{% if search %}search={{ search }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if entity_type_filter %}entity_type={{ entity_type_filter }}&{% endif %}{% if follow_up_filter %}follow_up={{ follow_up_filter }}{% endif %}" class="btn btn-secondary">Export CSV</a>
+        {% endif %}
     </form>
 </div>
 
-{% if clients_with_revenue %}
-<table class="data-table" id="clients-table">
+{% if clients %}
+<table class="data-table">
     <thead>
         <tr>
-            <th>
-                <a href="?{% if search %}search={{ search }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if entity_type_filter %}entity_type={{ entity_type_filter }}&{% endif %}{% if follow_up_filter %}follow_up={{ follow_up_filter }}&{% endif %}sort_by=name&sort_order={% if sort_by == 'name' and sort_order == 'asc' %}desc{% else %}asc{% endif %}" class="sort-link">
-                    Legal Name {% if sort_by == 'name' %}{% if sort_order == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
-                </a>
-            </th>
+            <th>Legal Name</th>
             <th>Entity Type</th>
+            <th>EIN (Last 4)</th>
             <th>Fiscal Year End</th>
-            <th>
-                <a href="?{% if search %}search={{ search }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if entity_type_filter %}entity_type={{ entity_type_filter }}&{% endif %}{% if follow_up_filter %}follow_up={{ follow_up_filter }}&{% endif %}sort_by=status&sort_order={% if sort_by == 'status' and sort_order == 'asc' %}desc{% else %}asc{% endif %}" class="sort-link">
-                    Status {% if sort_by == 'status' %}{% if sort_order == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
-                </a>
-            </th>
-            <th>Next Follow-Up</th>
-            <th>
-                <a href="?{% if search %}search={{ search }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}{% if entity_type_filter %}entity_type={{ entity_type_filter }}&{% endif %}{% if follow_up_filter %}follow_up={{ follow_up_filter }}&{% endif %}sort_by=revenue&sort_order={% if sort_by == 'revenue' and sort_order == 'asc' %}desc{% else %}asc{% endif %}" class="sort-link">
-                    Annual Revenue {% if sort_by == 'revenue' %}{% if sort_order == 'asc' %}↑{% else %}↓{% endif %}{% endif %}
-                </a>
-            </th>
-            <th>Total Hours</th>
+            <th>Status</th>
             <th>Actions</th>
         </tr>
     </thead>
     <tbody>
-        {% for item in clients_with_revenue %}
-        {% set client = item.client %}
-        {% set revenue = item.revenue %}
+        {% for client in clients %}
         <tr>
             <td><a href="/clients/{{ client.id }}" class="link-primary">{{ client.legal_name }}</a></td>
-            <td>
-                <select class="inline-edit" data-client-id="{{ client.id }}" data-field="entity_type" onchange="updateField(this)">
-                    <option value="">-</option>
-                    <option value="LLC" {% if client.entity_type == 'LLC' %}selected{% endif %}>LLC</option>
-                    <option value="S-Corp" {% if client.entity_type == 'S-Corp' %}selected{% endif %}>S-Corp</option>
-                    <option value="C-Corp" {% if client.entity_type == 'C-Corp' %}selected{% endif %}>C-Corp</option>
-                    <option value="Partnership" {% if client.entity_type == 'Partnership' %}selected{% endif %}>Partnership</option>
-                    <option value="Sole Proprietorship" {% if client.entity_type == 'Sole Proprietorship' %}selected{% endif %}>Sole Proprietorship</option>
-                    <option value="Unknown" {% if client.entity_type == 'Unknown' %}selected{% endif %}>Unknown</option>
-                </select>
-            </td>
-            <td>
-                <input type="text" class="inline-edit-input" data-client-id="{{ client.id }}" data-field="fiscal_year_end" value="{{ client.fiscal_year_end or '' }}" placeholder="e.g., 12/31" onblur="updateField(this)">
-            </td>
-            <td>
-                <select class="inline-edit" data-client-id="{{ client.id }}" data-field="status" onchange="updateField(this)">
-                    <option value="Prospect" {% if client.status == 'Prospect' %}selected{% endif %}>Prospect</option>
-                    <option value="Active" {% if client.status == 'Active' %}selected{% endif %}>Active</option>
-                    <option value="Paused" {% if client.status == 'Paused' %}selected{% endif %}>Paused</option>
-                    <option value="Former" {% if client.status == 'Former' %}selected{% endif %}>Former</option>
-                    <option value="Dead" {% if client.status == 'Dead' %}selected{% endif %}>Dead</option>
-                </select>
-            </td>
-            <td>
-                {% if client.next_follow_up_date %}
-                    {% if client.next_follow_up_date < today %}
-                        <span class="overdue">{{ client.next_follow_up_date.strftime('%m/%d/%Y') }}</span>
-                    {% elif client.next_follow_up_date == today %}
-                        <span class="due-today">{{ client.next_follow_up_date.strftime('%m/%d/%Y') }}</span>
-                    {% else %}
-                        {{ client.next_follow_up_date.strftime('%m/%d/%Y') }}
-                    {% endif %}
-                {% else %}
-                    -
-                {% endif %}
-            </td>
-            <td>${{ "{:,.2f}".format(revenue) }}</td>
-            <td>
-                {{ "%.1f"|format(item.total_hours) }} hrs
-                {% if item.timesheet_entries > 0 %}
-                    <small style="color: #666;">({{ item.timesheet_entries }} entries)</small>
-                {% endif %}
-            </td>
+            <td>{{ client.entity_type or '-' }}</td>
+            <td>{{ client.ein_last4 or '-' }}</td>
+            <td>{{ client.fiscal_year_end or '-' }}</td>
+            <td><span class="status-badge status-{{ client.status.lower() }}">{{ client.status }}</span></td>
             <td>
                 <a href="/clients/{{ client.id }}" class="btn btn-sm btn-secondary">View</a>
+                <a href="/clients/{{ client.id }}/edit" class="btn btn-sm btn-secondary">Edit</a>
             </td>
         </tr>
         {% endfor %}
@@ -141,116 +52,5 @@
     <a href="/clients/new" class="btn btn-primary">Create Your First Client</a>
 </div>
 {% endif %}
-
-<script>
-// Get today's date for comparison
-const today = new Date();
-today.setHours(0, 0, 0, 0);
-
-async function updateField(element) {
-    const clientId = element.getAttribute('data-client-id');
-    const field = element.getAttribute('data-field');
-    const value = element.value || element.value;
-    
-    try {
-        const formData = new FormData();
-        formData.append('field', field);
-        formData.append('value', value);
-        
-        const response = await fetch(`/clients/${clientId}/update-field`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        if (response.ok) {
-            // Show brief success indicator
-            element.style.backgroundColor = '#d4edda';
-            setTimeout(() => {
-                element.style.backgroundColor = '';
-            }, 500);
-        } else {
-            alert('Error updating field. Please try again.');
-        }
-    } catch (error) {
-        alert('Error updating field. Please try again.');
-    }
-}
-</script>
-
-<style>
-.filters-section {
-    background: white;
-    padding: 1rem;
-    border-radius: 4px;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-}
-
-.filters-form {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
-    align-items: flex-end;
-}
-
-.filter-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.filter-group label {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: #666;
-}
-
-.filter-input, .filter-select {
-    padding: 0.5rem;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 0.9rem;
-}
-
-.inline-edit, .inline-edit-input {
-    border: 1px solid transparent;
-    padding: 0.25rem;
-    border-radius: 3px;
-    font-size: 0.9rem;
-    background: transparent;
-    min-width: 120px;
-}
-
-.inline-edit:hover, .inline-edit-input:hover {
-    border-color: #3498db;
-    background: #f8f9fa;
-}
-
-.inline-edit:focus, .inline-edit-input:focus {
-    outline: none;
-    border-color: #3498db;
-    background: white;
-    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
-}
-
-.sort-link {
-    color: #2c3e50;
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.sort-link:hover {
-    color: #3498db;
-}
-
-.overdue {
-    color: #e74c3c;
-    font-weight: 600;
-}
-
-.due-today {
-    color: #f39c12;
-    font-weight: 600;
-}
-</style>
 {% endblock %}
+

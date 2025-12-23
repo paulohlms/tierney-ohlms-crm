@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}New Prospect - CRM Tool{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>New Prospect</h1>
+    <a href="/prospects" class="btn btn-secondary">Back to Prospects</a>
+</div>
+
+<form method="post" action="/prospects/new" class="form-container">
+    <div class="form-group">
+        <label for="name">Name *</label>
+        <input type="text" id="name" name="name" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="company">Company</label>
+        <input type="text" id="company" name="company">
+    </div>
+    
+    <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email">
+    </div>
+    
+    <div class="form-group">
+        <label for="phone">Phone</label>
+        <input type="tel" id="phone" name="phone">
+    </div>
+    
+    <div class="form-group">
+        <label for="source">Source</label>
+        <input type="text" id="source" name="source">
+    </div>
+    
+    <div class="form-group">
+        <label for="stage">Stage</label>
+        <select id="stage" name="stage">
+            <option value="New">New</option>
+            <option value="Contacted">Contacted</option>
+            <option value="Proposal">Proposal</option>
+            <option value="Negotiation">Negotiation</option>
+            <option value="Closed-Won">Closed-Won</option>
+            <option value="Closed-Lost">Closed-Lost</option>
+        </select>
+    </div>
+    
+    <!-- IMPROVEMENT 4: No default value, only show if entered -->
+    <div class="form-group">
+        <label for="estimated_revenue">Estimated Revenue ($)</label>
+        <input type="number" id="estimated_revenue" name="estimated_revenue" class="form-control" step="0.01" min="0" value="{{ prospect.estimated_revenue if prospect and prospect.estimated_revenue else '' }}" placeholder="Enter revenue (optional)">
+        <small class="form-text">Leave blank if revenue is not known</small>
+    </div>
+    
+    <div class="form-group">
+        <label for="next_follow_up">Next Follow-Up Date</label>
+        <input type="date" id="next_follow_up" name="next_follow_up" value="{{ prospect.next_follow_up.strftime('%Y-%m-%d') if prospect and prospect.next_follow_up else '' }}">
+    </div>
+    
+    <div class="form-group">
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes" rows="4"></textarea>
+    </div>
+    
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Create Prospect</button>
+        <a href="/prospects" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+{% endblock %}
+

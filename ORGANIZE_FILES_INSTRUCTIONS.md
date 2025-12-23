@@ -126,3 +126,6 @@ If the script doesn't work:
 
 **Your Whiskey Inventory project will be completely separate from your CRM Tool!** 🎯
 
+
+
+

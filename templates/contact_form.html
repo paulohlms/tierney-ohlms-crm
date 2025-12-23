@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}New Contact - CRM Tool{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>New Contact for {{ client.legal_name }}</h1>
+    <a href="/clients/{{ client.id }}" class="btn btn-secondary">Back to Client</a>
+</div>
+
+<form method="post" action="/clients/{{ client.id }}/contacts/new" class="form-container">
+    <!-- IMPROVEMENT 1: Autopopulate from client if available -->
+    <div class="form-group">
+        <label for="name">Name *</label>
+        <input type="text" id="name" name="name" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="{{ contact_data.email if contact_data else '' }}">
+    </div>
+    
+    <div class="form-group">
+        <label for="phone">Phone</label>
+        <input type="tel" id="phone" name="phone" value="{{ contact_data.phone if contact_data else '' }}">
+    </div>
+    
+    <div class="form-group">
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title">
+    </div>
+    
+    <div class="form-group">
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes" rows="4"></textarea>
+    </div>
+    
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Create Contact</button>
+        <a href="/clients/{{ client.id }}" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+{% endblock %}
+

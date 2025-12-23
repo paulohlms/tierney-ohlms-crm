@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}New Service - CRM Tool{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>New Service for {{ client.legal_name }}</h1>
+    <a href="/clients/{{ client.id }}" class="btn btn-secondary">Back to Client</a>
+</div>
+
+<form method="post" action="/clients/{{ client.id }}/services/new" class="form-container">
+    <div class="form-group">
+        <label for="name">Service Name *</label>
+        <input type="text" id="name" name="name" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" rows="4"></textarea>
+    </div>
+    
+    <!-- IMPROVEMENT 2: Special Projects Field -->
+    <div class="form-group">
+        <label for="special_projects">Special Projects</label>
+        <textarea id="special_projects" name="special_projects" rows="3" placeholder="Enter any special projects or notes...">{{ service.special_projects if service else '' }}</textarea>
+    </div>
+    
+    <!-- IMPROVEMENT 3: Billing Type and Hourly Rate -->
+    <div class="form-group">
+        <label for="billing_type">Billing Type</label>
+        <select id="billing_type" name="billing_type" class="form-control" onchange="toggleHourlyRate()">
+            <option value="fixed" {{ 'selected' if (not service or service.billing_type == 'fixed') else '' }}>Fixed Price</option>
+            <option value="hourly" {{ 'selected' if (service and service.billing_type == 'hourly') else '' }}>Hourly</option>
+        </select>
+    </div>
+    
+    <div class="form-group" id="hourly_rate_group" style="display: none;">
+        <label for="hourly_rate">Hourly Rate ($)</label>
+        <input type="number" id="hourly_rate" name="hourly_rate" class="form-control" step="0.01" min="0" value="{{ service.hourly_rate if service and service.hourly_rate else '' }}" placeholder="Enter hourly rate">
+    </div>
+    
+    <div class="form-group" id="fixed_price_group">
+        <label for="price">Price ($)</label>
+        <input type="number" id="price" name="price" class="form-control" step="0.01" min="0" value="{{ service.price if service and service.price else '' }}" placeholder="Enter fixed price">
+    </div>
+    
+    <div class="form-group">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+            <option value="Active" {{ 'selected' if (not service or service.status == 'Active') else '' }}>Active</option>
+            <option value="Inactive" {{ 'selected' if (service and service.status == 'Inactive') else '' }}>Inactive</option>
+        </select>
+    </div>
+    
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Create Service</button>
+        <a href="/clients/{{ client.id }}" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+
+<script>
+function toggleHourlyRate() {
+    const billingType = document.getElementById('billing_type').value;
+    const hourlyRateGroup = document.getElementById('hourly_rate_group');
+    const fixedPriceGroup = document.getElementById('fixed_price_group');
+    
+    if (billingType === 'hourly') {
+        hourlyRateGroup.style.display = 'block';
+        fixedPriceGroup.style.display = 'none';
+        document.getElementById('hourly_rate').required = true;
+        document.getElementById('price').required = false;
+    } else {
+        hourlyRateGroup.style.display = 'none';
+        fixedPriceGroup.style.display = 'block';
+        document.getElementById('hourly_rate').required = false;
+        document.getElementById('price').required = false;
+    }
+}
+
+// Run on page load
+window.addEventListener('DOMContentLoaded', toggleHourlyRate);
+</script>
+{% endblock %}
+
