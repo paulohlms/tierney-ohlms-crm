@@ -122,6 +122,7 @@ def get_default_permissions(role: str) -> Dict[str, bool]:
     """
     if role == "Admin":
         return {
+            "view_dashboard": True,
             "view_clients": True,
             "create_clients": True,
             "edit_clients": True,
@@ -150,6 +151,7 @@ def get_default_permissions(role: str) -> Dict[str, bool]:
         }
     elif role == "Manager":
         return {
+            "view_dashboard": True,
             "view_clients": True,
             "create_clients": True,
             "edit_clients": True,
@@ -178,6 +180,7 @@ def get_default_permissions(role: str) -> Dict[str, bool]:
         }
     else:  # Staff
         return {
+            "view_dashboard": True,
             "view_clients": True,
             "create_clients": False,
             "edit_clients": False,

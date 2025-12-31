@@ -278,8 +278,8 @@ async def login(
         )
     
     # Store user in session
-    request.session["user"] = user
-    return RedirectResponse(url="/clients", status_code=303)
+    request.session["user_id"] = user.id
+    return RedirectResponse(url="/dashboard", status_code=303)
 
 
 @app.get("/logout")
@@ -1341,7 +1341,8 @@ async def dashboard(
                 "lost_count": len(lost_clients),
                 "total_lost_value": total_lost_value,
                 "total_clients": total_clients,
-                "total_active": total_active,
+                "active_clients": total_active,
+                "total_prospects": len(prospects),
                 "total_revenue": total_revenue,
                 "total_revenue_formatted": f"{total_revenue:,.0f}",
                 "total_hours": total_hours,
@@ -1352,7 +1353,15 @@ async def dashboard(
         import traceback
         error_msg = f"Error in dashboard: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg)
+        # Return user-friendly error page instead of raising exception
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": "An error occurred loading the dashboard. Please try logging in again."
+            },
+            status_code=500
+        )
 
 
 # ============================================================================
