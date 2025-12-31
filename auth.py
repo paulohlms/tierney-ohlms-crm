@@ -36,7 +36,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_current_user(request: Request) -> Optional[User]:
     """
     Get the current user from the session.
-    Clears the session if the user doesn't exist in the database.
+    Clears the session if the user doesn't exist in the database or if there's an error.
     """
     user_id = request.session.get("user_id")
     if not user_id:
@@ -47,8 +47,19 @@ def get_current_user(request: Request) -> Optional[User]:
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             # User doesn't exist - clear the session to prevent redirect loops
-            request.session.clear()
+            try:
+                request.session.clear()
+            except:
+                pass  # Ignore session errors
         return user
+    except Exception as e:
+        # If there's any error querying the database, clear the session to prevent loops
+        print(f"Error getting current user: {e}")
+        try:
+            request.session.clear()
+        except:
+            pass
+        return None
     finally:
         db.close()
 

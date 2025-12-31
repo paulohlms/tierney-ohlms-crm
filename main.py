@@ -253,12 +253,24 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def login_page(request: Request):
     """Login page - simple form for basic auth."""
     # If already logged in, verify user exists before redirecting
-    user_id = request.session.get("user_id")
-    if user_id:
-        current_user = get_current_user(request)
-        if current_user:
-            return RedirectResponse(url="/dashboard", status_code=303)
-        # If user doesn't exist, session was cleared by get_current_user
+    # Only redirect if we can confirm the user actually exists
+    try:
+        user_id = request.session.get("user_id")
+        if user_id:
+            current_user = get_current_user(request)
+            if current_user and current_user.active:
+                # User exists and is active - safe to redirect
+                return RedirectResponse(url="/dashboard", status_code=303)
+            # If user doesn't exist or is inactive, session was cleared by get_current_user
+            # Fall through to show login page
+    except Exception as e:
+        # If anything goes wrong, clear session and show login page
+        print(f"Error in login_page: {e}")
+        try:
+            request.session.clear()
+        except:
+            pass
+    
     return templates.TemplateResponse("login.html", {"request": request, "error": None})
 
 
@@ -349,8 +361,8 @@ async def logout(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    """Redirect root to dashboard."""
-    return RedirectResponse(url="/dashboard")
+    """Redirect root to login - login will redirect to dashboard if authenticated."""
+    return RedirectResponse(url="/login", status_code=303)
 
 
 @app.get("/clients", response_class=HTMLResponse)
