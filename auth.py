@@ -4,6 +4,7 @@ Authentication and authorization utilities.
 import bcrypt
 from typing import Optional, Dict
 from fastapi import Request
+from sqlalchemy import func
 from models import User
 from database import SessionLocal
 
