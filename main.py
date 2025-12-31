@@ -45,6 +45,58 @@ from auth import (
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
+# Migrate existing database schema (add missing columns)
+def migrate_database_schema():
+    """Add missing columns to existing tables if they don't exist."""
+    from sqlalchemy import inspect, text
+    
+    if not os.getenv("DATABASE_URL"):
+        # SQLite - tables are created fresh, no migration needed
+        return
+    
+    try:
+        with engine.connect() as conn:
+            inspector = inspect(engine)
+            
+            # Check users table
+            if 'users' in inspector.get_table_names():
+                columns = [col['name'] for col in inspector.get_columns('users')]
+                
+                # Add name column if missing
+                if 'name' not in columns:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR"))
+                    conn.commit()
+                    print("✅ Added 'name' column to users table")
+                
+                # Add created_at column if missing
+                if 'created_at' not in columns:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
+                    conn.commit()
+                    print("✅ Added 'created_at' column to users table")
+                
+                # Add updated_at column if missing
+                if 'updated_at' not in columns:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
+                    conn.commit()
+                    print("✅ Added 'updated_at' column to users table")
+                
+                # Update existing users to have a name if they don't
+                result = conn.execute(text("SELECT id, email FROM users WHERE name IS NULL OR name = ''"))
+                users_without_names = result.fetchall()
+                
+                if users_without_names:
+                    for user_id, email in users_without_names:
+                        # Extract name from email (e.g., "Paul@tierneyohlms.com" -> "Paul")
+                        name = email.split('@')[0].title()
+                        conn.execute(text("UPDATE users SET name = :name WHERE id = :id"), {"name": name, "id": user_id})
+                    conn.commit()
+                    print(f"✅ Updated {len(users_without_names)} user(s) with names from email")
+    except Exception as e:
+        print(f"⚠️  Migration warning: {e}")
+        # Don't fail startup if migration has issues
+
+migrate_database_schema()
+
 # Auto-bootstrap: Create admin users if none exist
 def bootstrap_admin_users():
     """Create admin users if users table is empty."""
