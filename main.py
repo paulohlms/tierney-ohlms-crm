@@ -95,7 +95,7 @@ def migrate_database_schema():
                 
                 if added_columns:
                     conn.commit()
-                    print(f"✅ Added columns to users table: {', '.join(added_columns)}")
+                    print(f"[OK] Added columns to users table: {', '.join(added_columns)}")
                 
                 # Update existing users to have default values
                 # Set name from email if missing
@@ -108,7 +108,7 @@ def migrate_database_schema():
                         name = email.split('@')[0].title()
                         conn.execute(text("UPDATE users SET name = :name WHERE id = :id"), {"name": name, "id": user_id})
                     conn.commit()
-                    print(f"✅ Updated {len(users_without_names)} user(s) with names from email")
+                    print(f"[OK] Updated {len(users_without_names)} user(s) with names from email")
                 
                 # Set default role for users without role
                 result = conn.execute(text("SELECT id FROM users WHERE role IS NULL OR role = ''"))
@@ -117,7 +117,7 @@ def migrate_database_schema():
                 if users_without_role:
                     conn.execute(text("UPDATE users SET role = 'Staff' WHERE role IS NULL OR role = ''"))
                     conn.commit()
-                    print(f"✅ Set default role for {len(users_without_role)} user(s)")
+                    print(f"[OK] Set default role for {len(users_without_role)} user(s)")
                 
                 # Set default active status
                 result = conn.execute(text("SELECT id FROM users WHERE active IS NULL"))
@@ -126,12 +126,10 @@ def migrate_database_schema():
                 if users_without_active:
                     conn.execute(text("UPDATE users SET active = TRUE WHERE active IS NULL"))
                     conn.commit()
-                    print(f"✅ Set default active status for {len(users_without_active)} user(s)")
+                    print(f"[OK] Set default active status for {len(users_without_active)} user(s)")
     except Exception as e:
-        print(f"⚠️  Migration warning: {e}")
+        print(f"[WARNING] Migration warning: {e}")
         # Don't fail startup if migration has issues
-
-migrate_database_schema()
 
 # Auto-bootstrap: Create admin users if none exist
 def bootstrap_admin_users():
@@ -191,26 +189,36 @@ def bootstrap_admin_users():
             db.add(dan)
             
             db.commit()
-            print("✅ Admin users created!")
+            print("[OK] Admin users created!")
             print("  - admin@tierneyohlms.com / ChangeMe123!")
             print("  - Paul@tierneyohlms.com / ChangeMe123!")
             print("  - Dan@tierneyohlms.com / ChangeMe123!")
-            print("  ⚠️  CHANGE THESE PASSWORDS IMMEDIATELY!")
+            print("  [WARNING] CHANGE THESE PASSWORDS IMMEDIATELY!")
         else:
-            print(f"Γ£à Found {user_count} existing user(s). Skipping bootstrap.")
+            print(f"[OK] Found {user_count} existing user(s). Skipping bootstrap.")
     except Exception as e:
-        print(f"Γ¥î Error bootstrapping users: {e}")
+        print(f"[ERROR] Error bootstrapping users: {e}")
         import traceback
         traceback.print_exc()
         db.rollback()
     finally:
         db.close()
 
-# Run bootstrap on startup
-bootstrap_admin_users()
-
 # Initialize FastAPI app
 app = FastAPI(title="Tierney & Ohlms CRM")
+
+# Run migrations and bootstrap on startup
+@app.on_event("startup")
+async def startup_event():
+    """Run database migrations and bootstrap users on startup."""
+    try:
+        migrate_database_schema()
+        bootstrap_admin_users()
+    except Exception as e:
+        print(f"[WARNING] Startup warning: {e}")
+        import traceback
+        traceback.print_exc()
+        # Don't fail startup - app should still be usable
 
 # Add session middleware for authentication
 # Use environment variable if set, otherwise use default (change in production!)
