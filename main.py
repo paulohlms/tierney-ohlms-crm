@@ -286,7 +286,7 @@ async def login(
     if not user:
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Invalid email or password. Try: Paul@tierneyohlms.com / ChangeMe123!"},
+            {"request": request, "error": "Invalid email or password. Try: admin@tierneyohlms.com / ChangeMe123!"},
             status_code=401
         )
     
