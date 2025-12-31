@@ -252,13 +252,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Login page - simple form for basic auth."""
-    # If already logged in, verify user exists before redirecting
-    user_id = request.session.get("user_id")
-    if user_id:
-        current_user = get_current_user(request)
-        if current_user:
-            return RedirectResponse(url="/dashboard", status_code=303)
-        # If user doesn't exist, session was cleared by get_current_user
+    # Always show the login page - never redirect from GET /login
+    # This prevents redirect loops. The POST /login route handles authentication and redirects.
     return templates.TemplateResponse("login.html", {"request": request, "error": None})
 
 
@@ -347,10 +342,15 @@ async def logout(request: Request):
 # Client Routes
 # ============================================================================
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def root(request: Request):
-    """Redirect root to dashboard."""
-    return RedirectResponse(url="/dashboard")
+    """Redirect root to login page."""
+    return RedirectResponse(url="/login", status_code=303)
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint - no auth required."""
+    return {"status": "ok", "service": "tierney-ohlms-crm"}
 
 
 @app.get("/clients", response_class=HTMLResponse)
