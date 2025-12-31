@@ -61,26 +61,44 @@ def migrate_database_schema():
             # Check users table
             if 'users' in inspector.get_table_names():
                 columns = [col['name'] for col in inspector.get_columns('users')]
+                added_columns = []
                 
                 # Add name column if missing
                 if 'name' not in columns:
                     conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR"))
-                    conn.commit()
-                    print("✅ Added 'name' column to users table")
+                    added_columns.append('name')
+                
+                # Add role column if missing
+                if 'role' not in columns:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'Staff'"))
+                    added_columns.append('role')
+                
+                # Add permissions column if missing
+                if 'permissions' not in columns:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT"))
+                    added_columns.append('permissions')
+                
+                # Add active column if missing
+                if 'active' not in columns:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT TRUE"))
+                    added_columns.append('active')
                 
                 # Add created_at column if missing
                 if 'created_at' not in columns:
                     conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
-                    conn.commit()
-                    print("✅ Added 'created_at' column to users table")
+                    added_columns.append('created_at')
                 
                 # Add updated_at column if missing
                 if 'updated_at' not in columns:
                     conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
-                    conn.commit()
-                    print("✅ Added 'updated_at' column to users table")
+                    added_columns.append('updated_at')
                 
-                # Update existing users to have a name if they don't
+                if added_columns:
+                    conn.commit()
+                    print(f"✅ Added columns to users table: {', '.join(added_columns)}")
+                
+                # Update existing users to have default values
+                # Set name from email if missing
                 result = conn.execute(text("SELECT id, email FROM users WHERE name IS NULL OR name = ''"))
                 users_without_names = result.fetchall()
                 
@@ -91,6 +109,24 @@ def migrate_database_schema():
                         conn.execute(text("UPDATE users SET name = :name WHERE id = :id"), {"name": name, "id": user_id})
                     conn.commit()
                     print(f"✅ Updated {len(users_without_names)} user(s) with names from email")
+                
+                # Set default role for users without role
+                result = conn.execute(text("SELECT id FROM users WHERE role IS NULL OR role = ''"))
+                users_without_role = result.fetchall()
+                
+                if users_without_role:
+                    conn.execute(text("UPDATE users SET role = 'Staff' WHERE role IS NULL OR role = ''"))
+                    conn.commit()
+                    print(f"✅ Set default role for {len(users_without_role)} user(s)")
+                
+                # Set default active status
+                result = conn.execute(text("SELECT id FROM users WHERE active IS NULL"))
+                users_without_active = result.fetchall()
+                
+                if users_without_active:
+                    conn.execute(text("UPDATE users SET active = TRUE WHERE active IS NULL"))
+                    conn.commit()
+                    print(f"✅ Set default active status for {len(users_without_active)} user(s)")
     except Exception as e:
         print(f"⚠️  Migration warning: {e}")
         # Don't fail startup if migration has issues
