@@ -252,8 +252,30 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Login page - simple form for basic auth."""
+<<<<<<< HEAD
     # Always show the login page - never redirect from GET /login
     # This prevents redirect loops. The POST /login route handles authentication and redirects.
+=======
+    # If already logged in, verify user exists before redirecting
+    # Only redirect if we can confirm the user actually exists
+    try:
+        user_id = request.session.get("user_id")
+        if user_id:
+            current_user = get_current_user(request)
+            if current_user and current_user.active:
+                # User exists and is active - safe to redirect
+                return RedirectResponse(url="/dashboard", status_code=303)
+            # If user doesn't exist or is inactive, session was cleared by get_current_user
+            # Fall through to show login page
+    except Exception as e:
+        # If anything goes wrong, clear session and show login page
+        print(f"Error in login_page: {e}")
+        try:
+            request.session.clear()
+        except:
+            pass
+    
+>>>>>>> 6629e0d10665c3ac17c6ce3f04ff3cc905866943
     return templates.TemplateResponse("login.html", {"request": request, "error": None})
 
 
@@ -344,6 +366,7 @@ async def logout(request: Request):
 
 @app.get("/")
 async def root(request: Request):
+<<<<<<< HEAD
     """Redirect root to login page."""
     return RedirectResponse(url="/login", status_code=303)
 
@@ -351,6 +374,10 @@ async def root(request: Request):
 async def health_check():
     """Health check endpoint - no auth required."""
     return {"status": "ok", "service": "tierney-ohlms-crm"}
+=======
+    """Redirect root to login - login will redirect to dashboard if authenticated."""
+    return RedirectResponse(url="/login", status_code=303)
+>>>>>>> 6629e0d10665c3ac17c6ce3f04ff3cc905866943
 
 
 @app.get("/clients", response_class=HTMLResponse)
