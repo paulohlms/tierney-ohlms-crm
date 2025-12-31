@@ -244,9 +244,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     """Login page - simple form for basic auth."""
-    # If already logged in, redirect to clients
-    if request.session.get("user"):
-        return RedirectResponse(url="/clients", status_code=303)
+    # If already logged in, redirect to dashboard
+    if request.session.get("user_id"):
+        return RedirectResponse(url="/dashboard", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": None})
 
 

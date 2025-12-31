@@ -102,18 +102,32 @@ def require_permission_decorator(permission: str):
 def verify_user(db, email: str, password: str) -> Optional[User]:
     """
     Verify user credentials and return the user if valid.
+    Email comparison is case-insensitive.
     """
-    user = db.query(User).filter(User.email == email).first()
+    # Case-insensitive email lookup
+    user = db.query(User).filter(func.lower(User.email) == func.lower(email)).first()
     if not user:
+        print(f"User not found for email: {email}")
         return None
     
     if not user.active:
+        print(f"User {email} is not active")
         return None
     
-    if verify_password(password, user.hashed_password):
-        return user
+    # Debug: Check if password verification works
+    password_valid = verify_password(password, user.hashed_password)
+    if not password_valid:
+        print(f"Password verification failed for {email}")
+        # Try to verify the hash format
+        try:
+            test_hash = hash_password(password)
+            print(f"Test hash generated, but verification still failed")
+        except Exception as e:
+            print(f"Error testing password hash: {e}")
+        return None
     
-    return None
+    print(f"Login successful for {email}")
+    return user
 
 
 def get_default_permissions(role: str) -> Dict[str, bool]:
