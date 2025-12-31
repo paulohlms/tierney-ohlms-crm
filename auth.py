@@ -66,9 +66,27 @@ def has_permission(user: Optional[User], permission: str) -> bool:
         return False
 
 
-def require_permission(permission: str):
+def require_permission(user: Optional[User], permission: str):
+    """
+    Check if user has permission. Redirects to login if not authenticated or lacks permission.
+    Can be used as a function call: require_permission(current_user, "view_clients")
+    Returns RedirectResponse if permission denied, None if allowed.
+    """
+    from fastapi.responses import RedirectResponse
+    
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    
+    if not has_permission(user, permission):
+        return RedirectResponse(url="/login", status_code=303)
+    
+    return None
+
+
+def require_permission_decorator(permission: str):
     """
     Decorator to require a permission for a route.
+    Usage: @require_permission_decorator("view_clients")
     """
     def decorator(func):
         async def wrapper(request: Request, *args, **kwargs):

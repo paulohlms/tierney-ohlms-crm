@@ -384,7 +384,9 @@ async def prospects_list(
         if not current_user:
             return RedirectResponse(url="/login", status_code=303)
         
-        require_permission(current_user, "view_clients")
+        permission_check = require_permission(current_user, "view_clients")
+        if permission_check:
+            return permission_check
         
         # Get all prospects (clients with status="Prospect")
         prospects = get_clients(
@@ -496,7 +498,9 @@ async def prospects_export(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "export_clients")
+    permission_check = require_permission(current_user, "export_clients")
+    if permission_check:
+        return permission_check
     
     # Get all prospects
     prospects = get_clients(
@@ -588,7 +592,9 @@ async def convert_prospect_to_client(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "edit_clients")
+    permission_check = require_permission(current_user, "edit_clients")
+    if permission_check:
+        return permission_check
     
     client = get_client(db, client_id)
     if not client:
@@ -610,7 +616,9 @@ async def client_new_form(request: Request):
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "create_clients")
+    permission_check = require_permission(current_user, "create_clients")
+    if permission_check:
+        return permission_check
     
     return templates.TemplateResponse(
         "client_form.html",
@@ -635,7 +643,9 @@ async def client_create(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "create_clients")
+    permission_check = require_permission(current_user, "create_clients")
+    if permission_check:
+        return permission_check
     
     follow_up_date = None
     if next_follow_up_date:
@@ -668,7 +678,9 @@ async def client_detail(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "view_clients")
+    permission_check = require_permission(current_user, "view_clients")
+    if permission_check:
+        return permission_check
     
     client = get_client(db, client_id)
     if not client:
@@ -764,7 +776,9 @@ async def client_edit_form(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "edit_clients")
+    permission_check = require_permission(current_user, "edit_clients")
+    if permission_check:
+        return permission_check
     
     client = get_client(db, client_id)
     if not client:
@@ -794,7 +808,9 @@ async def client_update(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "edit_clients")
+    permission_check = require_permission(current_user, "edit_clients")
+    if permission_check:
+        return permission_check
     
     follow_up_date = None
     if next_follow_up_date:
@@ -832,7 +848,9 @@ async def client_update_field(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "edit_clients")
+    permission_check = require_permission(current_user, "edit_clients")
+    if permission_check:
+        return permission_check
     
     # Whitelist of allowed fields for security
     allowed_fields = {
@@ -873,7 +891,9 @@ async def client_delete(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "delete_clients")
+    permission_check = require_permission(current_user, "delete_clients")
+    if permission_check:
+        return permission_check
     
     success = delete_client(db, client_id)
     if not success:
@@ -901,7 +921,9 @@ async def contact_create(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "create_contacts")
+    permission_check = require_permission(current_user, "create_contacts")
+    if permission_check:
+        return permission_check
     
     # Verify client exists
     client = get_client(db, client_id)
@@ -937,7 +959,9 @@ async def contact_delete(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "delete_contacts")
+    permission_check = require_permission(current_user, "delete_contacts")
+    if permission_check:
+        return permission_check
     
     delete_contact(db, contact_id)
     return RedirectResponse(url=f"/clients/{client_id}", status_code=303)
@@ -961,7 +985,9 @@ async def service_create(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "create_services")
+    permission_check = require_permission(current_user, "create_services")
+    if permission_check:
+        return permission_check
     
     # Verify client exists
     client = get_client(db, client_id)
@@ -1038,7 +1064,9 @@ async def task_create(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "create_tasks")
+    permission_check = require_permission(current_user, "create_tasks")
+    if permission_check:
+        return permission_check
     
     # Verify client exists
     client = get_client(db, client_id)
@@ -1118,7 +1146,9 @@ async def note_create(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "create_notes")
+    permission_check = require_permission(current_user, "create_notes")
+    if permission_check:
+        return permission_check
     
     # Verify client exists
     client = get_client(db, client_id)
@@ -1167,7 +1197,9 @@ async def dashboard(
         if not current_user:
             return RedirectResponse(url="/login", status_code=303)
         
-        require_permission(current_user, "view_dashboard")
+        permission_check = require_permission(current_user, "view_dashboard")
+        if permission_check:
+            return permission_check
         
         # Get all clients
         all_clients = db.query(Client).all()
@@ -1447,7 +1479,9 @@ async def timesheet_new_form(
         return RedirectResponse(url="/login", status_code=303)
     
     # Check permission to create timesheets
-    require_permission(current_user, "create_timesheets")
+    permission_check = require_permission(current_user, "create_timesheets")
+    if permission_check:
+        return permission_check
     
     clients = db.query(Client).order_by(Client.legal_name).all()
     
@@ -1484,7 +1518,9 @@ async def timesheet_create(
         return RedirectResponse(url="/login", status_code=303)
     
     # Check permission to create timesheets
-    require_permission(current_user, "create_timesheets")
+    permission_check = require_permission(current_user, "create_timesheets")
+    if permission_check:
+        return permission_check
     
     # Parse entry date
     try:
@@ -1721,7 +1757,9 @@ async def settings_page(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "view_settings")
+    permission_check = require_permission(current_user, "view_settings")
+    if permission_check:
+        return permission_check
     
     users = get_users(db, active_only=False)
     
@@ -1786,7 +1824,9 @@ async def create_user_route(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "manage_users")
+    permission_check = require_permission(current_user, "manage_users")
+    if permission_check:
+        return permission_check
     
     # Check if email already exists
     existing = get_user_by_email(db, email)
@@ -1873,7 +1913,9 @@ async def update_user_route(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "manage_users")
+    permission_check = require_permission(current_user, "manage_users")
+    if permission_check:
+        return permission_check
     
     # Get permissions from form
     # Need to await request.form() in FastAPI
@@ -1936,7 +1978,9 @@ async def delete_user_route(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
     
-    require_permission(current_user, "manage_users")
+    permission_check = require_permission(current_user, "manage_users")
+    if permission_check:
+        return permission_check
     
     # Prevent deleting yourself
     if current_user.get("id") == user_id:
