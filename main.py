@@ -257,41 +257,70 @@ async def login(
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    """Handle login - redirects to clients list on success."""
+    """Handle login - redirects to dashboard on success."""
+    user = None
+    
     try:
+        # First, check if any users exist
+        from models import User as UserModel
+        user_count = db.query(UserModel).count()
+        print(f"Total users in database: {user_count}")
+        
+        if user_count == 0:
+            print("No users found. Running bootstrap...")
+            bootstrap_admin_users()
+            # Refresh the database session
+            db.expire_all()
+        
+        # Try to verify user
         user = verify_user(db, email, password)
+        
     except Exception as e:
         import traceback
-        print(f"Login error: {e}")
+        error_msg = f"Login error: {e}"
+        print(error_msg)
         traceback.print_exc()
-        # Try to bootstrap users if table might be empty
+        
+        # Try bootstrap as fallback
         try:
-            from models import User
-            user_count = db.query(User).count()
+            from models import User as UserModel
+            user_count = db.query(UserModel).count()
             if user_count == 0:
-                print("No users found during login. Attempting to bootstrap...")
+                print("Attempting emergency bootstrap...")
                 bootstrap_admin_users()
-                # Try again after bootstrap
+                db.expire_all()
                 user = verify_user(db, email, password)
         except Exception as bootstrap_error:
             print(f"Bootstrap error: {bootstrap_error}")
-        
-        if not user:
-            return templates.TemplateResponse(
-                "login.html",
-                {"request": request, "error": f"Login error. Please check server console for details."},
-                status_code=500
-            )
+            import traceback
+            traceback.print_exc()
     
     if not user:
+        # Provide helpful error message
+        error_msg = "Invalid email or password."
+        try:
+            from models import User as UserModel
+            user_count = db.query(UserModel).count()
+            if user_count == 0:
+                error_msg += " No users found in database. Please check server logs for bootstrap errors."
+            else:
+                # List available emails for debugging
+                all_users = db.query(UserModel.email, UserModel.active).all()
+                active_emails = [u.email for u in all_users if u.active]
+                if active_emails:
+                    error_msg += f" Available accounts: {', '.join(active_emails[:3])}"
+        except:
+            pass
+        
         return templates.TemplateResponse(
             "login.html",
-            {"request": request, "error": "Invalid email or password. Try: admin@tierneyohlms.com / ChangeMe123!"},
+            {"request": request, "error": error_msg},
             status_code=401
         )
     
     # Store user in session
     request.session["user_id"] = user.id
+    print(f"Session set for user_id: {user.id}")
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
