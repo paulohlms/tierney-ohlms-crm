@@ -154,6 +154,18 @@ def bootstrap_admin_users():
         if user_count == 0:
             print("No users found. Creating admin users...")
             
+            # Create Admin account
+            admin_permissions = get_default_permissions("Admin")
+            admin = User(
+                email="admin@tierneyohlms.com",
+                name="Administrator",
+                hashed_password=hash_password("ChangeMe123!"),
+                role="Admin",
+                permissions=json.dumps(admin_permissions),
+                active=True
+            )
+            db.add(admin)
+            
             # Create Paul
             paul_permissions = get_default_permissions("Admin")
             paul = User(
@@ -179,10 +191,11 @@ def bootstrap_admin_users():
             db.add(dan)
             
             db.commit()
-            print("Γ£à Admin users created!")
+            print("✅ Admin users created!")
+            print("  - admin@tierneyohlms.com / ChangeMe123!")
             print("  - Paul@tierneyohlms.com / ChangeMe123!")
             print("  - Dan@tierneyohlms.com / ChangeMe123!")
-            print("  ΓÜá∩╕Å  CHANGE THESE PASSWORDS IMMEDIATELY!")
+            print("  ⚠️  CHANGE THESE PASSWORDS IMMEDIATELY!")
         else:
             print(f"Γ£à Found {user_count} existing user(s). Skipping bootstrap.")
     except Exception as e:
