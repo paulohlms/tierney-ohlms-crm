@@ -204,6 +204,79 @@ def bootstrap_admin_users():
     finally:
         db.close()
 
+
+def reset_admin_users():
+    """Forcefully reset/create admin users with default passwords."""
+    from models import User
+    from auth import hash_password, get_default_permissions
+    import json
+    from datetime import datetime
+    
+    db = next(get_db())
+    try:
+        admin_emails = [
+            "admin@tierneyohlms.com",
+            "Paul@tierneyohlms.com",
+            "Dan@tierneyohlms.com"
+        ]
+        
+        admin_data = [
+            ("admin@tierneyohlms.com", "Administrator"),
+            ("Paul@tierneyohlms.com", "Paul Ohlms"),
+            ("Dan@tierneyohlms.com", "Dan Tierney")
+        ]
+        
+        created_count = 0
+        updated_count = 0
+        
+        for email, name in admin_data:
+            # Check if user exists
+            user = db.query(User).filter(func.lower(User.email) == func.lower(email)).first()
+            
+            admin_permissions = get_default_permissions("Admin")
+            password_hash = hash_password("ChangeMe123!")
+            
+            if user:
+                # Update existing user
+                user.name = name
+                user.hashed_password = password_hash
+                user.role = "Admin"
+                user.permissions = json.dumps(admin_permissions)
+                user.active = True
+                user.updated_at = datetime.utcnow()
+                updated_count += 1
+                print(f"[OK] Updated user: {email}")
+            else:
+                # Create new user
+                new_user = User(
+                    email=email,
+                    name=name,
+                    hashed_password=password_hash,
+                    role="Admin",
+                    permissions=json.dumps(admin_permissions),
+                    active=True,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(new_user)
+                created_count += 1
+                print(f"[OK] Created user: {email}")
+        
+        db.commit()
+        print(f"[OK] Reset complete: {created_count} created, {updated_count} updated")
+        print("  - admin@tierneyohlms.com / ChangeMe123!")
+        print("  - Paul@tierneyohlms.com / ChangeMe123!")
+        print("  - Dan@tierneyohlms.com / ChangeMe123!")
+        return {"status": "success", "created": created_count, "updated": updated_count}
+    except Exception as e:
+        print(f"[ERROR] Error resetting admin users: {e}")
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+
 # Initialize FastAPI app
 app = FastAPI(title="Tierney & Ohlms CRM")
 
@@ -213,7 +286,8 @@ async def startup_event():
     """Run database migrations and bootstrap users on startup."""
     try:
         migrate_database_schema()
-        bootstrap_admin_users()
+        # Always reset admin users on startup to ensure they exist with correct passwords
+        reset_admin_users()
     except Exception as e:
         print(f"[WARNING] Startup warning: {e}")
         import traceback
@@ -2051,6 +2125,35 @@ async def delete_user_route(
     
     delete_user(db, user_id)
     return RedirectResponse(url="/settings?success=user_deleted", status_code=303)
+
+
+@app.post("/admin/reset-users")
+async def reset_admin_users_endpoint(request: Request):
+    """
+    Emergency endpoint to reset admin users.
+    This endpoint can be called without authentication for emergency access.
+    In production, you should secure this endpoint or remove it after use.
+    """
+    try:
+        result = reset_admin_users()
+        if result.get("status") == "success":
+            return {
+                "status": "success",
+                "message": "Admin users reset successfully",
+                "created": result.get("created", 0),
+                "updated": result.get("updated", 0),
+                "credentials": {
+                    "admin@tierneyohlms.com": "ChangeMe123!",
+                    "Paul@tierneyohlms.com": "ChangeMe123!",
+                    "Dan@tierneyohlms.com": "ChangeMe123!"
+                }
+            }
+        else:
+            return {"status": "error", "message": result.get("message", "Unknown error")}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
 
 
 # ============================================================================
