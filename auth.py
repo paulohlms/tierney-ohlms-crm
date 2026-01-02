@@ -37,10 +37,7 @@ def get_current_user(request: Request) -> Optional[User]:
     """
     Get the current user from the session.
     Clears the session if the user doesn't exist in the database or if there's an error.
-<<<<<<< HEAD
     Always returns None if user doesn't exist or there's an error.
-=======
->>>>>>> 6629e0d10665c3ac17c6ce3f04ff3cc905866943
     """
     user_id = request.session.get("user_id")
     if not user_id:
@@ -55,10 +52,7 @@ def get_current_user(request: Request) -> Optional[User]:
                 request.session.clear()
             except:
                 pass  # Ignore session errors
-<<<<<<< HEAD
             return None  # Explicitly return None
-=======
->>>>>>> 6629e0d10665c3ac17c6ce3f04ff3cc905866943
         return user
     except Exception as e:
         # If there's any error querying the database, clear the session to prevent loops
