@@ -2130,17 +2130,19 @@ async def delete_user_route(
     return RedirectResponse(url="/settings?success=user_deleted", status_code=303)
 
 
+@app.get("/admin/reset-users")
 @app.post("/admin/reset-users")
 async def reset_admin_users_endpoint(request: Request):
     """
     Emergency endpoint to reset admin users.
     This endpoint can be called without authentication for emergency access.
+    Accessible via GET or POST for easy testing.
     In production, you should secure this endpoint or remove it after use.
     """
     try:
         result = reset_admin_users()
         if result.get("status") == "success":
-            return {
+            response_data = {
                 "status": "success",
                 "message": "Admin users reset successfully",
                 "created": result.get("created", 0),
@@ -2151,12 +2153,58 @@ async def reset_admin_users_endpoint(request: Request):
                     "Dan@tierneyohlms.com": "ChangeMe123!"
                 }
             }
+            # Return HTML response for easy viewing in browser
+            html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head><title>Admin Users Reset</title></head>
+            <body style="font-family: Arial; padding: 20px;">
+                <h1>Admin Users Reset Successfully!</h1>
+                <p><strong>Status:</strong> {response_data['status']}</p>
+                <p><strong>Created:</strong> {response_data['created']} users</p>
+                <p><strong>Updated:</strong> {response_data['updated']} users</p>
+                <h2>Login Credentials:</h2>
+                <ul>
+                    <li><strong>admin@tierneyohlms.com</strong> / ChangeMe123!</li>
+                    <li><strong>Paul@tierneyohlms.com</strong> / ChangeMe123!</li>
+                    <li><strong>Dan@tierneyohlms.com</strong> / ChangeMe123!</li>
+                </ul>
+                <p><a href="/login">Go to Login Page</a></p>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=html)
         else:
-            return {"status": "error", "message": result.get("message", "Unknown error")}
+            error_msg = result.get("message", "Unknown error")
+            html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head><title>Reset Error</title></head>
+            <body style="font-family: Arial; padding: 20px;">
+                <h1>Error Resetting Users</h1>
+                <p><strong>Error:</strong> {error_msg}</p>
+                <p><a href="/login">Go to Login Page</a></p>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=html, status_code=500)
     except Exception as e:
         import traceback
-        traceback.print_exc()
-        return {"status": "error", "message": str(e)}
+        error_trace = traceback.format_exc()
+        print(f"[ERROR] Reset endpoint error: {error_trace}")
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Reset Error</title></head>
+        <body style="font-family: Arial; padding: 20px;">
+            <h1>Error Resetting Users</h1>
+            <p><strong>Exception:</strong> {str(e)}</p>
+            <pre style="background: #f0f0f0; padding: 10px; overflow: auto;">{error_trace}</pre>
+            <p><a href="/login">Go to Login Page</a></p>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html, status_code=500)
 
 
 # ============================================================================
