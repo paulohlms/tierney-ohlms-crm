@@ -127,8 +127,29 @@ def migrate_database_schema():
                     conn.execute(text("UPDATE users SET active = TRUE WHERE active IS NULL"))
                     conn.commit()
                     print(f"[OK] Set default active status for {len(users_without_active)} user(s)")
+            
+            # Check clients table
+            if 'clients' in inspector.get_table_names():
+                columns = [col['name'] for col in inspector.get_columns('clients')]
+                added_columns = []
+                
+                # Add owner_name column if missing
+                if 'owner_name' not in columns:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN owner_name VARCHAR"))
+                    added_columns.append('owner_name')
+                
+                # Add owner_email column if missing
+                if 'owner_email' not in columns:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN owner_email VARCHAR"))
+                    added_columns.append('owner_email')
+                
+                if added_columns:
+                    conn.commit()
+                    print(f"[OK] Added columns to clients table: {', '.join(added_columns)}")
     except Exception as e:
         print(f"[WARNING] Migration warning: {e}")
+        import traceback
+        traceback.print_exc()
         # Don't fail startup if migration has issues
 
 # Auto-bootstrap: Create admin users if none exist
