@@ -128,7 +128,7 @@ def migrate_database_schema():
                     conn.commit()
                     print(f"[OK] Set default active status for {len(users_without_active)} user(s)")
             
-            # Check clients table
+            # Check clients table - add ALL missing columns from the model
             if 'clients' in inspector.get_table_names():
                 columns = [col['name'] for col in inspector.get_columns('clients')]
                 added_columns = []
@@ -143,9 +143,26 @@ def migrate_database_schema():
                     conn.execute(text("ALTER TABLE clients ADD COLUMN owner_email VARCHAR"))
                     added_columns.append('owner_email')
                 
+                # Add next_follow_up_date column if missing
+                if 'next_follow_up_date' not in columns:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN next_follow_up_date DATE"))
+                    added_columns.append('next_follow_up_date')
+                
+                # Add last_reminder_sent column if missing
+                if 'last_reminder_sent' not in columns:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN last_reminder_sent DATE"))
+                    added_columns.append('last_reminder_sent')
+                
+                # Add created_at column if missing (should exist, but just in case)
+                if 'created_at' not in columns:
+                    conn.execute(text("ALTER TABLE clients ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
+                    added_columns.append('created_at')
+                
                 if added_columns:
                     conn.commit()
                     print(f"[OK] Added columns to clients table: {', '.join(added_columns)}")
+                else:
+                    print("[OK] All required columns exist in clients table")
     except Exception as e:
         print(f"[WARNING] Migration warning: {e}")
         import traceback
