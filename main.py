@@ -285,9 +285,12 @@ app = FastAPI(title="Tierney & Ohlms CRM")
 async def startup_event():
     """Run database migrations and bootstrap users on startup."""
     try:
+        print("[STARTUP] Running database migrations...")
         migrate_database_schema()
+        print("[STARTUP] Resetting admin users...")
         # Always reset admin users on startup to ensure they exist with correct passwords
         reset_admin_users()
+        print("[STARTUP] Startup complete!")
     except Exception as e:
         print(f"[WARNING] Startup warning: {e}")
         import traceback
