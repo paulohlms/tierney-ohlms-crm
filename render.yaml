@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: tierney-ohlms-crm
+    runtime: python
+    plan: free  # or starter, standard, etc.
+    buildCommand: |
+      export PYTHONIOENCODING=utf-8
+      export LANG=en_US.UTF-8
+      export LC_ALL=en_US.UTF-8
+      export LC_CTYPE=en_US.UTF-8
+      pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # UTF-8 Encoding Variables
+      - key: PYTHONIOENCODING
+        value: utf-8
+      - key: LANG
+        value: en_US.UTF-8
+      - key: LC_ALL
+        value: en_US.UTF-8
+      - key: LC_CTYPE
+        value: en_US.UTF-8
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Application Variables (set these in Render dashboard)
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+
