@@ -1,32 +1,132 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - CRM Tool{% endblock %}
+{% block title %}2025 Sales Pipeline Dashboard - CRM Tool{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1>Dashboard</h1>
+    <h1>2025 Sales Pipeline Dashboard</h1>
+    <p class="subtitle">Overview of prospects, won deals, and lost opportunities</p>
 </div>
 
-<div class="dashboard-grid">
-    <div class="dashboard-card">
+<div class="dashboard-stats">
+    <div class="stat-card">
         <h3>Total Clients</h3>
-        <p class="dashboard-number">{{ total_clients }}</p>
+        <p class="stat-number">{{ total_clients }}</p>
     </div>
     
-    <div class="dashboard-card">
+    <div class="stat-card">
         <h3>Active Clients</h3>
-        <p class="dashboard-number">{{ active_clients }}</p>
+        <p class="stat-number">{{ active_clients }}</p>
     </div>
     
-    <div class="dashboard-card">
-        <h3>Total Prospects</h3>
-        <p class="dashboard-number">{{ total_prospects }}</p>
+    <div class="stat-card">
+        <h3>Total Revenue</h3>
+        <p class="stat-number">${{ total_revenue_formatted }}</p>
+    </div>
+    
+    <div class="stat-card">
+        <h3>Total Hours</h3>
+        <p class="stat-number">{{ "%.1f"|format(total_hours) }}</p>
+    </div>
+</div>
+
+<div class="dashboard-sections">
+    <div class="dashboard-section">
+        <h2>Prospects ({{ prospects_count }})</h2>
+        <p class="section-revenue">Total Estimated Revenue: ${{ "{:,.0f}"|format(total_prospect_revenue) }}</p>
+        
+        {% if prospects %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Client Name</th>
+                    <th>Expected Close Date</th>
+                    <th>Estimated Revenue</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in prospects %}
+                <tr>
+                    <td><a href="/clients/{{ item.client.id }}" class="link-primary">{{ item.client.legal_name }}</a></td>
+                    <td>{{ item.expected_close_date.strftime('%Y-%m-%d') if item.expected_close_date else 'Not set' }}</td>
+                    <td>${{ "{:,.0f}"|format(item.estimated_revenue) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No prospects found.</p>
+        </div>
+        {% endif %}
+    </div>
+    
+    <div class="dashboard-section">
+        <h2>Won Deals ({{ won_count }})</h2>
+        <p class="section-revenue">Total Revenue: ${{ "{:,.0f}"|format(total_won_revenue) }}</p>
+        
+        {% if won_deals %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Client Name</th>
+                    <th>Close Date</th>
+                    <th>Annual Revenue</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in won_deals %}
+                <tr>
+                    <td><a href="/clients/{{ item.client.id }}" class="link-primary">{{ item.client.legal_name }}</a></td>
+                    <td>{{ item.close_date.strftime('%Y-%m-%d') if item.close_date else 'Not set' }}</td>
+                    <td>${{ "{:,.0f}"|format(item.actual_revenue) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No won deals found.</p>
+        </div>
+        {% endif %}
+    </div>
+    
+    <div class="dashboard-section">
+        <h2>Lost Deals ({{ lost_count }})</h2>
+        <p class="section-revenue">Total Lost Value: ${{ "{:,.0f}"|format(total_lost_value) }}</p>
+        
+        {% if lost_deals %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Client Name</th>
+                    <th>Lost Date</th>
+                    <th>Estimated Value</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in lost_deals %}
+                <tr>
+                    <td><a href="/clients/{{ item.client.id }}" class="link-primary">{{ item.client.legal_name }}</a></td>
+                    <td>{{ item.lost_date.strftime('%Y-%m-%d') if item.lost_date else 'Not set' }}</td>
+                    <td>${{ "{:,.0f}"|format(item.estimated_value) }}</td>
+                    <td>{{ item.reason }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No lost deals found.</p>
+        </div>
+        {% endif %}
     </div>
 </div>
 
 <div class="dashboard-actions">
     <a href="/clients/new" class="btn btn-primary">+ New Client</a>
-    <a href="/prospects/new" class="btn btn-primary">+ New Prospect</a>
+    <a href="/clients" class="btn btn-secondary">View All Clients</a>
 </div>
 {% endblock %}
 
