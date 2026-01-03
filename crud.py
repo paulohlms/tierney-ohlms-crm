@@ -30,51 +30,13 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
     """
     Calculate annual revenue for a client based on active services.
     
-    Revenue = sum of (monthly_fee ├ù multiplier) for all active services
+    Revenue = sum of (monthly_fee × multiplier) for all active services
     Multiplier: 12 for Monthly, 4 for Quarterly, 1 for Annual
     """
-    # #region agent log
-    try:
-        import json
-        import time
-        with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"crud.py:36","message":"calculate_client_revenue entry","data":{"client_id":client_id},"timestamp":int(time.time()*1000)}) + "\n")
-    except: pass
-    # #endregion
-    try:
-        services = db.query(Service).filter(
-            Service.client_id == client_id,
-            Service.active == True
-        ).all()
-        # #region agent log
-        try:
-            import json
-            import time
-            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"crud.py:42","message":"calculate_client_revenue query success","data":{"client_id":client_id,"services_count":len(services)},"timestamp":int(time.time()*1000)}) + "\n")
-        except: pass
-        # #endregion
-    except Exception as e:
-        # #region agent log
-        try:
-            import json
-            import time
-            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"crud.py:48","message":"calculate_client_revenue query failed","data":{"client_id":client_id,"error":str(e),"type":type(e).__name__},"timestamp":int(time.time()*1000)}) + "\n")
-        except: pass
-        # #endregion
-        # Check if transaction is in failed state
-        if "InFailedSqlTransaction" in str(type(e).__name__) or "current transaction is aborted" in str(e).lower():
-            # #region agent log
-            try:
-                import json
-                import time
-                with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"crud.py:55","message":"Transaction failed state detected","data":{"client_id":client_id},"timestamp":int(time.time()*1000)}) + "\n")
-            except: pass
-            # #endregion
-            db.rollback()
-        raise
+    services = db.query(Service).filter(
+        Service.client_id == client_id,
+        Service.active == True
+    ).all()
     
     revenue = 0.0
     for service in services:

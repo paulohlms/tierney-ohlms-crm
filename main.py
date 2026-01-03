@@ -45,290 +45,8 @@ from auth import (
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-# Migrate existing database schema (add missing columns)
-def migrate_database_schema():
-    """Add missing columns to existing tables if they don't exist."""
-    from sqlalchemy import inspect, text
-    import json
-    import time
-    
-    if not os.getenv("DATABASE_URL"):
-        # SQLite - tables are created fresh, no migration needed
-        return
-    
-    # #region agent log
-    try:
-        with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:49","message":"migrate_database_schema entry","data":{"has_db_url":bool(os.getenv("DATABASE_URL"))},"timestamp":int(time.time()*1000)}) + "\n")
-    except: pass
-    # #endregion
-    
-    try:
-        # Use a completely isolated connection with autocommit for DDL operations
-        # This prevents transaction state from affecting the main session pool
-        with engine.connect() as conn:
-            # #region agent log
-            try:
-                with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"main.py:58","message":"Connection established","data":{"connection_id":id(conn)},"timestamp":int(time.time()*1000)}) + "\n")
-            except: pass
-            # #endregion
-            # Use autocommit mode for DDL operations to avoid transaction issues
-            conn = conn.execution_options(autocommit=True)
-            inspector = inspect(engine)
-            
-            # Check users table
-            if 'users' in inspector.get_table_names():
-                columns = [col['name'] for col in inspector.get_columns('users')]
-                added_columns = []
-                
-                # Add name column if missing
-                if 'name' not in columns:
-                    try:
-                        # Use autocommit for DDL to avoid transaction issues
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR"))
-                        added_columns.append('name')
-                    except Exception as e:
-                        print(f"[WARNING] Could not add name column (may already exist): {e}")
-                
-                # Add role column if missing
-                if 'role' not in columns:
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'Staff'"))
-                        added_columns.append('role')
-                    except Exception as e:
-                        print(f"[WARNING] Could not add role column (may already exist): {e}")
-                
-                # Add permissions column if missing
-                if 'permissions' not in columns:
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT"))
-                        added_columns.append('permissions')
-                    except Exception as e:
-                        print(f"[WARNING] Could not add permissions column (may already exist): {e}")
-                
-                # Add active column if missing
-                if 'active' not in columns:
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT TRUE"))
-                        added_columns.append('active')
-                    except Exception as e:
-                        print(f"[WARNING] Could not add active column (may already exist): {e}")
-                
-                # Add created_at column if missing
-                if 'created_at' not in columns:
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
-                        added_columns.append('created_at')
-                    except Exception as e:
-                        print(f"[WARNING] Could not add created_at column (may already exist): {e}")
-                
-                # Add updated_at column if missing
-                if 'updated_at' not in columns:
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
-                        added_columns.append('updated_at')
-                    except Exception as e:
-                        print(f"[WARNING] Could not add updated_at column (may already exist): {e}")
-                
-                if added_columns:
-                    print(f"[OK] Added columns to users table: {', '.join(added_columns)}")
-                
-                # Update existing users to have default values
-                # Set name from email if missing
-                try:
-                    result = conn.execute(text("SELECT id, email FROM users WHERE name IS NULL OR name = ''"))
-                    users_without_names = result.fetchall()
-                    
-                    if users_without_names:
-                        with conn.begin():
-                            for user_id, email in users_without_names:
-                                # Extract name from email (e.g., "Paul@tierneyohlms.com" -> "Paul")
-                                name = email.split('@')[0].title()
-                                conn.execute(text("UPDATE users SET name = :name WHERE id = :id"), {"name": name, "id": user_id})
-                        print(f"[OK] Updated {len(users_without_names)} user(s) with names from email")
-                except Exception as e:
-                    print(f"[WARNING] Could not update user names: {e}")
-                
-                # Set default role for users without role
-                try:
-                    result = conn.execute(text("SELECT id FROM users WHERE role IS NULL OR role = ''"))
-                    users_without_role = result.fetchall()
-                    
-                    if users_without_role:
-                        with conn.begin():
-                            conn.execute(text("UPDATE users SET role = 'Staff' WHERE role IS NULL OR role = ''"))
-                        print(f"[OK] Set default role for {len(users_without_role)} user(s)")
-                except Exception as e:
-                    print(f"[WARNING] Could not update user roles: {e}")
-                
-                # Set default active status
-                try:
-                    result = conn.execute(text("SELECT id FROM users WHERE active IS NULL"))
-                    users_without_active = result.fetchall()
-                    
-                    if users_without_active:
-                        with conn.begin():
-                            conn.execute(text("UPDATE users SET active = TRUE WHERE active IS NULL"))
-                        print(f"[OK] Set default active status for {len(users_without_active)} user(s)")
-                except Exception as e:
-                    print(f"[WARNING] Could not update user active status: {e}")
-            
-            # Check clients table - add ALL missing columns from the model
-            if 'clients' in inspector.get_table_names():
-                columns = [col['name'] for col in inspector.get_columns('clients')]
-                added_columns = []
-                
-                # Add owner_name column if missing
-                if 'owner_name' not in columns:
-                    # #region agent log
-                    try:
-                        with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:137","message":"Before ALTER TABLE owner_name","data":{"column":"owner_name"},"timestamp":int(time.time()*1000)}) + "\n")
-                    except: pass
-                    # #endregion
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE clients ADD COLUMN owner_name VARCHAR"))
-                        added_columns.append('owner_name')
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:142","message":"ALTER TABLE owner_name success","data":{"column":"owner_name"},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                    except Exception as e:
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:149","message":"ALTER TABLE owner_name failed","data":{"column":"owner_name","error":str(e)},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                        print(f"[WARNING] Could not add owner_name column (may already exist): {e}")
-                
-                # Add owner_email column if missing
-                if 'owner_email' not in columns:
-                    # #region agent log
-                    try:
-                        with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:155","message":"Before ALTER TABLE owner_email","data":{"column":"owner_email"},"timestamp":int(time.time()*1000)}) + "\n")
-                    except: pass
-                    # #endregion
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE clients ADD COLUMN owner_email VARCHAR"))
-                        added_columns.append('owner_email')
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:162","message":"ALTER TABLE owner_email success","data":{"column":"owner_email"},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                    except Exception as e:
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:169","message":"ALTER TABLE owner_email failed","data":{"column":"owner_email","error":str(e)},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                        print(f"[WARNING] Could not add owner_email column (may already exist): {e}")
-                
-                # Add next_follow_up_date column if missing
-                if 'next_follow_up_date' not in columns:
-                    # #region agent log
-                    try:
-                        with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:175","message":"Before ALTER TABLE next_follow_up_date","data":{"column":"next_follow_up_date"},"timestamp":int(time.time()*1000)}) + "\n")
-                    except: pass
-                    # #endregion
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE clients ADD COLUMN next_follow_up_date DATE"))
-                        added_columns.append('next_follow_up_date')
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:182","message":"ALTER TABLE next_follow_up_date success","data":{"column":"next_follow_up_date"},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                    except Exception as e:
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:189","message":"ALTER TABLE next_follow_up_date failed","data":{"column":"next_follow_up_date","error":str(e)},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                        print(f"[WARNING] Could not add next_follow_up_date column (may already exist): {e}")
-                
-                # Add last_reminder_sent column if missing
-                if 'last_reminder_sent' not in columns:
-                    # #region agent log
-                    try:
-                        with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:195","message":"Before ALTER TABLE last_reminder_sent","data":{"column":"last_reminder_sent"},"timestamp":int(time.time()*1000)}) + "\n")
-                    except: pass
-                    # #endregion
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE clients ADD COLUMN last_reminder_sent DATE"))
-                        added_columns.append('last_reminder_sent')
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:202","message":"ALTER TABLE last_reminder_sent success","data":{"column":"last_reminder_sent"},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                    except Exception as e:
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:209","message":"ALTER TABLE last_reminder_sent failed","data":{"column":"last_reminder_sent","error":str(e)},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                        print(f"[WARNING] Could not add last_reminder_sent column (may already exist): {e}")
-                
-                # Add created_at column if missing (should exist, but just in case)
-                if 'created_at' not in columns:
-                    # #region agent log
-                    try:
-                        with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:215","message":"Before ALTER TABLE created_at","data":{"column":"created_at"},"timestamp":int(time.time()*1000)}) + "\n")
-                    except: pass
-                    # #endregion
-                    try:
-                        with conn.begin():
-                            conn.execute(text("ALTER TABLE clients ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
-                        added_columns.append('created_at')
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:222","message":"ALTER TABLE created_at success","data":{"column":"created_at"},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                    except Exception as e:
-                        # #region agent log
-                        try:
-                            with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:229","message":"ALTER TABLE created_at failed","data":{"column":"created_at","error":str(e)},"timestamp":int(time.time()*1000)}) + "\n")
-                        except: pass
-                        # #endregion
-                        print(f"[WARNING] Could not add created_at column (may already exist): {e}")
-                
-                if added_columns:
-                    print(f"[OK] Added columns to clients table: {', '.join(added_columns)}")
-                else:
-                    print("[OK] All required columns exist in clients table")
-    except Exception as e:
-        print(f"[WARNING] Migration warning: {e}")
-        import traceback
-        traceback.print_exc()
-        # Don't fail startup if migration has issues
+# Import migration utilities
+from migrations import migrate_database_schema
 
 # Auto-bootstrap: Create admin users if none exist
 def bootstrap_admin_users():
@@ -1532,13 +1250,10 @@ async def dashboard(
         
         permission_check = require_permission(current_user, "view_dashboard")
         if permission_check:
-            print("[DASHBOARD] Permission check failed - redirecting to login")
             return permission_check
         
-        print("[DASHBOARD] Querying clients...")
         # Get all clients
         all_clients = db.query(Client).all()
-        print(f"[DASHBOARD] Found {len(all_clients)} clients")
         
         # Calculate overall statistics
         total_clients = len(all_clients)
@@ -1546,26 +1261,15 @@ async def dashboard(
         total_active = len(active_clients)
         
         # Calculate total revenue (all active clients)
-        print("[DASHBOARD] Calculating revenue...")
         total_revenue = 0.0
         for c in active_clients:
             try:
                 total_revenue += calculate_client_revenue(db, c.id)
             except Exception as e:
-                # If transaction is in failed state, rollback and retry
-                if "InFailedSqlTransaction" in str(type(e).__name__) or "current transaction is aborted" in str(e).lower():
-                    print(f"[DASHBOARD] Transaction failed for client {c.id}, rolling back and retrying...")
-                    db.rollback()
-                    try:
-                        total_revenue += calculate_client_revenue(db, c.id)
-                    except:
-                        print(f"[DASHBOARD] Could not calculate revenue for client {c.id} after rollback")
-                else:
-                    print(f"[DASHBOARD] Error calculating revenue for client {c.id}: {e}")
+                print(f"[DASHBOARD] Error calculating revenue for client {c.id}: {e}")
                 # Continue with 0 revenue for this client
         
         # Calculate total hours (all timesheets)
-        print("[DASHBOARD] Getting timesheet summary...")
         try:
             timesheet_summary_all = get_timesheet_summary(db)
             total_hours = timesheet_summary_all.get("total_hours", 0.0)
@@ -1658,18 +1362,8 @@ async def dashboard(
             try:
                 estimated_value = calculate_client_revenue(db, client.id)
             except Exception as e:
-                # If transaction is in failed state, rollback and retry
-                if "InFailedSqlTransaction" in str(type(e).__name__) or "current transaction is aborted" in str(e).lower():
-                    print(f"[DASHBOARD] Transaction failed for lost client {client.id}, rolling back and retrying...")
-                    db.rollback()
-                    try:
-                        estimated_value = calculate_client_revenue(db, client.id)
-                    except:
-                        print(f"[DASHBOARD] Could not calculate revenue for lost client {client.id} after rollback")
-                        estimated_value = 0.0
-                else:
-                    print(f"[DASHBOARD] Error calculating revenue for lost client {client.id}: {e}")
-                    estimated_value = 0.0
+                print(f"[DASHBOARD] Error calculating revenue for lost client {client.id}: {e}")
+                estimated_value = 0.0
             
             if estimated_value == 0:
                 estimated_value = 60000  # Default estimate for lost deals
