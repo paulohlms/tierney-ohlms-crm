@@ -1,19 +1,33 @@
 """
 Authentication and authorization utilities.
+
+Rebuilt with:
+- Deterministic state transitions
+- Explicit error handling
+- No hidden side effects
 """
 import bcrypt
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 from fastapi import Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy import func
+from sqlalchemy.orm import Session
 from models import User
 from database import SessionLocal
 
 
+# ============================================================================
+# Password Utilities
+# ============================================================================
+
 def hash_password(password: str) -> str:
     """
     Hash a password using bcrypt.
-    Truncates password to 72 bytes (bcrypt limit) to avoid errors.
+    Returns the hashed password as a string.
     """
+    if not password:
+        raise ValueError("Password cannot be empty")
+    
     # Truncate to 72 bytes to avoid bcrypt errors
     password_bytes = password[:72].encode('utf-8')
     salt = bcrypt.gensalt()
@@ -24,7 +38,11 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a password against a hash.
+    Returns True if password matches, False otherwise.
     """
+    if not plain_password or not hashed_password:
+        return False
+    
     try:
         password_bytes = plain_password[:72].encode('utf-8')
         hashed_bytes = hashed_password.encode('utf-8')
@@ -33,11 +51,70 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
+# ============================================================================
+# User Authentication
+# ============================================================================
+
+def verify_user(db: Session, email: str, password: str) -> Optional[User]:
+    """
+    Verify user credentials and return the user if valid.
+    
+    State transitions:
+    1. Lookup user by email (case-insensitive)
+    2. Check if user exists → return None if not found
+    3. Check if user is active → return None if inactive
+    4. Verify password → return None if invalid
+    5. Return user if all checks pass
+    
+    Returns:
+        User object if credentials are valid, None otherwise
+    """
+    if not email or not password:
+        return None
+    
+    try:
+        # Case-insensitive email lookup
+        user = db.query(User).filter(
+            func.lower(User.email) == func.lower(email.strip())
+        ).first()
+        
+        if not user:
+            return None
+        
+        if not user.active:
+            return None
+        
+        # Verify password
+        if not verify_password(password, user.hashed_password):
+            return None
+        
+        return user
+    except Exception as e:
+        # Log error but don't expose details to caller
+        print(f"Error verifying user: {e}")
+        return None
+
+
+# ============================================================================
+# Session Management
+# ============================================================================
+
 def get_current_user(request: Request) -> Optional[User]:
     """
     Get the current user from the session.
-    Clears the session if the user doesn't exist in the database or if there's an error.
-    Always returns None if user doesn't exist or there's an error.
+    
+    State transitions:
+    1. Check session for user_id → return None if missing
+    2. Query database for user → return None if not found
+    3. Clear session if user doesn't exist (prevent redirect loops)
+    4. Return user if found
+    
+    Side effects:
+    - Clears session if user_id exists but user not found in database
+    - Creates and closes database session (explicit resource management)
+    
+    Returns:
+        User object if authenticated, None otherwise
     """
     user_id = request.session.get("user_id")
     if not user_id:
@@ -46,29 +123,77 @@ def get_current_user(request: Request) -> Optional[User]:
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.id == user_id).first()
+        
         if not user:
-            # User doesn't exist - clear the session to prevent redirect loops
-            try:
-                request.session.clear()
-            except:
-                pass  # Ignore session errors
-            return None  # Explicitly return None
+            # User doesn't exist - clear session to prevent redirect loops
+            _clear_session_safe(request)
+            return None
+        
+        if not user.active:
+            # User is inactive - clear session
+            _clear_session_safe(request)
+            return None
+        
         return user
     except Exception as e:
-        # If there's any error querying the database, clear the session to prevent loops
+        # Database error - clear session and return None
         print(f"Error getting current user: {e}")
-        try:
-            request.session.clear()
-        except:
-            pass
+        _clear_session_safe(request)
         return None
     finally:
         db.close()
 
 
+def set_user_session(request: Request, user: User) -> None:
+    """
+    Set user session after successful login.
+    
+    State transition:
+    1. Store user_id in session
+    
+    Preconditions:
+    - user must exist and have an id
+    """
+    if not user or not user.id:
+        raise ValueError("Invalid user object")
+    
+    request.session["user_id"] = user.id
+
+
+def clear_user_session(request: Request) -> None:
+    """
+    Clear user session on logout.
+    
+    State transition:
+    1. Clear all session data
+    """
+    _clear_session_safe(request)
+
+
+def _clear_session_safe(request: Request) -> None:
+    """Safely clear session, ignoring any errors."""
+    try:
+        request.session.clear()
+    except Exception:
+        pass  # Ignore session errors
+
+
+# ============================================================================
+# Authorization
+# ============================================================================
+
 def has_permission(user: Optional[User], permission: str) -> bool:
     """
     Check if user has a specific permission.
+    
+    State transitions:
+    1. Check if user exists → return False if None
+    2. Check if user has permissions → return False if None
+    3. Parse JSON permissions → return False if invalid
+    4. Check permission value → return True/False
+    
+    Returns:
+        True if user has permission, False otherwise
     """
     if not user:
         return False
@@ -76,22 +201,26 @@ def has_permission(user: Optional[User], permission: str) -> bool:
     if not user.permissions:
         return False
     
-    import json
     try:
+        import json
         permissions = json.loads(user.permissions)
-        return permissions.get(permission, False)
-    except:
+        return bool(permissions.get(permission, False))
+    except Exception:
         return False
 
 
-def require_permission(user: Optional[User], permission: str):
+def require_permission(user: Optional[User], permission: str) -> Optional[RedirectResponse]:
     """
-    Check if user has permission. Redirects to login if not authenticated or lacks permission.
-    Can be used as a function call: require_permission(current_user, "view_clients")
-    Returns RedirectResponse if permission denied, None if allowed.
-    """
-    from fastapi.responses import RedirectResponse
+    Check if user has permission. Returns redirect if denied.
     
+    State transitions:
+    1. Check if user exists → redirect if None
+    2. Check permission → redirect if denied
+    3. Return None if allowed
+    
+    Returns:
+        RedirectResponse if permission denied, None if allowed
+    """
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     
@@ -101,56 +230,15 @@ def require_permission(user: Optional[User], permission: str):
     return None
 
 
-def require_permission_decorator(permission: str):
-    """
-    Decorator to require a permission for a route.
-    Usage: @require_permission_decorator("view_clients")
-    """
-    def decorator(func):
-        async def wrapper(request: Request, *args, **kwargs):
-            user = get_current_user(request)
-            if not user or not has_permission(user, permission):
-                from fastapi.responses import RedirectResponse
-                return RedirectResponse(url="/login", status_code=303)
-            return await func(request, *args, **kwargs)
-        return wrapper
-    return decorator
-
-
-def verify_user(db, email: str, password: str) -> Optional[User]:
-    """
-    Verify user credentials and return the user if valid.
-    Email comparison is case-insensitive.
-    """
-    # Case-insensitive email lookup
-    user = db.query(User).filter(func.lower(User.email) == func.lower(email)).first()
-    if not user:
-        print(f"User not found for email: {email}")
-        return None
-    
-    if not user.active:
-        print(f"User {email} is not active")
-        return None
-    
-    # Debug: Check if password verification works
-    password_valid = verify_password(password, user.hashed_password)
-    if not password_valid:
-        print(f"Password verification failed for {email}")
-        # Try to verify the hash format
-        try:
-            test_hash = hash_password(password)
-            print(f"Test hash generated, but verification still failed")
-        except Exception as e:
-            print(f"Error testing password hash: {e}")
-        return None
-    
-    print(f"Login successful for {email}")
-    return user
-
+# ============================================================================
+# Permission Definitions
+# ============================================================================
 
 def get_default_permissions(role: str) -> Dict[str, bool]:
     """
     Get default permissions for a role.
+    
+    Returns a dictionary of permission names to boolean values.
     """
     if role == "Admin":
         return {
@@ -244,7 +332,10 @@ def get_default_permissions(role: str) -> Dict[str, bool]:
 def can_edit_timesheet(user: Optional[User], staff_member: Optional[User]) -> bool:
     """
     Check if user can edit a timesheet entry.
-    Users can edit their own timesheets, or if they have edit_all_timesheets permission.
+    
+    Rules:
+    - Users can always edit their own timesheets
+    - Users can edit all timesheets if they have edit_all_timesheets permission
     """
     if not user:
         return False
@@ -263,7 +354,10 @@ def can_edit_timesheet(user: Optional[User], staff_member: Optional[User]) -> bo
 def can_delete_timesheet(user: Optional[User], staff_member: Optional[User]) -> bool:
     """
     Check if user can delete a timesheet entry.
-    Users can delete their own timesheets, or if they have delete_all_timesheets permission.
+    
+    Rules:
+    - Users can always delete their own timesheets
+    - Users can delete all timesheets if they have delete_all_timesheets permission
     """
     if not user:
         return False
@@ -277,4 +371,3 @@ def can_delete_timesheet(user: Optional[User], staff_member: Optional[User]) -> 
     
     # Can delete all if has permission
     return has_permission(user, "delete_all_timesheets")
-

@@ -200,19 +200,28 @@ app = FastAPI(title="Tierney & Ohlms CRM")
 # Run migrations and bootstrap on startup
 @app.on_event("startup")
 async def startup_event():
-    """Run database migrations and bootstrap users on startup."""
+    """
+    Run database migrations and bootstrap users on startup.
+    
+    State transitions:
+    1. Run database migrations → log result
+    2. Reset admin users → ensure they exist
+    3. Log completion
+    """
     try:
         print("[STARTUP] Running database migrations...")
-        migrate_database_schema()
+        migration_success = migrate_database_schema()
+        if not migration_success:
+            print("[STARTUP WARNING] Migration completed with errors - some columns may be missing")
+        
         print("[STARTUP] Resetting admin users...")
-        # Always reset admin users on startup to ensure they exist with correct passwords
         reset_admin_users()
         print("[STARTUP] Startup complete!")
     except Exception as e:
-        print(f"[WARNING] Startup warning: {e}")
+        print(f"[STARTUP ERROR] Startup error: {e}")
         import traceback
         traceback.print_exc()
-        # Don't fail startup - app should still be usable
+        # Don't fail startup - application should still be usable, but log the error
 
 # Add session middleware for authentication
 # Use environment variable if set, otherwise use default (change in production!)
@@ -258,77 +267,48 @@ async def login(
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    """Handle login - redirects to dashboard on success."""
-    user = None
+    """
+    Handle login - redirects to dashboard on success.
     
+    State transitions:
+    1. Bootstrap users if none exist
+    2. Verify user credentials
+    3. Set session if valid
+    4. Redirect to dashboard or show error
+    """
+    from models import User as UserModel
+    from auth import verify_user, set_user_session
+    
+    # Bootstrap users if none exist
     try:
-        # First, check if any users exist
-        from models import User as UserModel
         user_count = db.query(UserModel).count()
-        print(f"Total users in database: {user_count}")
-        
         if user_count == 0:
-            print("No users found. Running bootstrap...")
             bootstrap_admin_users()
-            # Refresh the database session
             db.expire_all()
-        
-        # Try to verify user
-        user = verify_user(db, email, password)
-        
     except Exception as e:
-        import traceback
-        error_msg = f"Login error: {e}"
-        print(error_msg)
-        traceback.print_exc()
-        
-        # Try bootstrap as fallback
-        try:
-            from models import User as UserModel
-            user_count = db.query(UserModel).count()
-            if user_count == 0:
-                print("Attempting emergency bootstrap...")
-                bootstrap_admin_users()
-                db.expire_all()
-                user = verify_user(db, email, password)
-        except Exception as bootstrap_error:
-            print(f"Bootstrap error: {bootstrap_error}")
-            import traceback
-            traceback.print_exc()
+        print(f"Error checking/bootstraping users: {e}")
+    
+    # Verify credentials
+    user = verify_user(db, email, password)
     
     if not user:
-        # Provide helpful error message
         error_msg = "Invalid email or password."
-        try:
-            from models import User as UserModel
-            user_count = db.query(UserModel).count()
-            if user_count == 0:
-                error_msg += " No users found in database. Please check server logs for bootstrap errors."
-            else:
-                # List available emails for debugging
-                all_users = db.query(UserModel.email, UserModel.active).all()
-                active_emails = [u.email for u in all_users if u.active]
-                if active_emails:
-                    error_msg += f" Available accounts: {', '.join(active_emails[:3])}"
-        except:
-            pass
-        
         return templates.TemplateResponse(
             "login.html",
             {"request": request, "error": error_msg},
             status_code=401
         )
     
-    # Store user in session
-    request.session["user_id"] = user.id
-    print(f"Session set for user_id: {user.id}")
+    # Set session and redirect
+    set_user_session(request, user)
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
 @app.get("/logout")
 async def logout(request: Request):
     """Logout user and clear session."""
-    request.session.clear()
+    from auth import clear_user_session
+    clear_user_session(request)
     return RedirectResponse(url="/login", status_code=303)
 
 
@@ -1239,210 +1219,221 @@ async def dashboard(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    """Display 2025 Sales Pipeline Dashboard."""
+    """
+    Display 2025 Sales Pipeline Dashboard.
+    
+    State transitions:
+    1. Get current user from session → redirect if not authenticated
+    2. Check permissions → redirect if denied
+    3. Load clients data → handle errors gracefully
+    4. Calculate statistics → handle errors gracefully
+    5. Render dashboard → always succeeds with safe defaults
+    """
+    from auth import get_current_user, require_permission
+    
+    # Step 1: Authentication
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+    
+    # Step 2: Authorization
+    permission_check = require_permission(current_user, "view_dashboard")
+    if permission_check:
+        return permission_check
+    
+    # Step 3: Load clients data (with explicit error handling)
     try:
-        current_user = get_current_user(request)
-        if not current_user:
-            return RedirectResponse(url="/login", status_code=303)
-        
-        permission_check = require_permission(current_user, "view_dashboard")
-        if permission_check:
-            return permission_check
-        
-        # Get all clients
         all_clients = db.query(Client).all()
-        
-        # Calculate overall statistics
-        total_clients = len(all_clients)
-        active_clients = [c for c in all_clients if c.status == "Active"]
-        total_active = len(active_clients)
-        
-        # Calculate total revenue (all active clients)
-        total_revenue = 0.0
-        for c in active_clients:
-            try:
-                total_revenue += calculate_client_revenue(db, c.id)
-            except Exception as e:
-                # Error calculating revenue - continue with 0 for this client
-                pass
-        
-        # Calculate total hours (all timesheets)
+    except Exception as e:
+        # Database query failed - return empty dashboard with safe defaults
+        print(f"Error loading clients: {e}")
+        import traceback
+        traceback.print_exc()
+        all_clients = []
+    
+    # Step 4: Calculate statistics (with explicit error handling for each operation)
+    total_clients = len(all_clients)
+    active_clients = [c for c in all_clients if c.status == "Active"]
+    total_active = len(active_clients)
+    
+    # Calculate total revenue (all active clients)
+    total_revenue = 0.0
+    for c in active_clients:
         try:
-            timesheet_summary_all = get_timesheet_summary(db)
-            total_hours = timesheet_summary_all.get("total_hours", 0.0)
+            total_revenue += calculate_client_revenue(db, c.id)
         except Exception as e:
-            # Error getting timesheet summary - use 0
-            total_hours = 0.0
-        
-        # Filter for 2025 (clients created in 2025 or with 2025 dates)
-        current_year = 2025
-        year_start = datetime(current_year, 1, 1).date()
-        year_end = datetime(current_year, 12, 31).date()
-        
-        # Prospects - all prospects (regardless of creation date, as they're potential 2025 deals)
-        prospects = [c for c in all_clients if c.status == "Prospect"]
-        
-        # Won deals - Active clients (treated as won/closed deals)
-        # Filter to those created in 2025 or with services starting in 2025
-        won_clients = []
-        for client in all_clients:
-            if client.status == "Active":
-                # Include if created in 2025
-                if client.created_at and client.created_at.year == current_year:
-                    won_clients.append(client)
-                else:
-                    # Check if has active services (treated as won)
-                    # FIXED: Wrap Service query in try/except to prevent crashes
-                    try:
-                        services = db.query(Service).filter(
-                            Service.client_id == client.id,
-                            Service.active == True
-                        ).first()
-                        if services:
-                            won_clients.append(client)
-                    except Exception as e:
-                        # If Service query fails, skip this client (graceful degradation)
-                        # This prevents InFailedSqlTransaction errors from crashing the dashboard
-                        pass
-        
-        # Lost deals - Dead clients
-        lost_clients = [c for c in all_clients if c.status == "Dead"]
-        
-        # Calculate prospect revenue (estimated from services or use a default)
-        prospects_data = []
-        total_prospect_revenue = 0.0
-        for prospect in prospects:
-            # FIXED: Wrap calculate_client_revenue in try/except to prevent crashes
+            # Error calculating revenue - continue with 0 for this client
+            pass
+    
+    # Calculate total hours (all timesheets)
+    try:
+        timesheet_summary_all = get_timesheet_summary(db)
+        total_hours = timesheet_summary_all.get("total_hours", 0.0)
+    except Exception as e:
+        # Error getting timesheet summary - use 0
+        total_hours = 0.0
+    
+    # Step 5: Filter clients by status
+    current_year = 2025
+    prospects = [c for c in all_clients if c.status == "Prospect"]
+    lost_clients = [c for c in all_clients if c.status == "Dead"]
+    
+    # Won deals - Active clients (with explicit error handling)
+    won_clients = []
+    for client in all_clients:
+        if client.status == "Active":
+            # Include if created in 2025
             try:
-                estimated_revenue = calculate_client_revenue(db, prospect.id)
+                if client.created_at and hasattr(client.created_at, 'year'):
+                    if client.created_at.year == current_year:
+                        won_clients.append(client)
+                        continue
+            except Exception:
+                pass  # Skip date check if it fails
+            
+            # Check if has active services (treated as won)
+            try:
+                services = db.query(Service).filter(
+                    Service.client_id == client.id,
+                    Service.active == True
+                ).first()
+                if services:
+                    won_clients.append(client)
             except Exception as e:
-                # If revenue calculation fails, use default estimate
-                estimated_revenue = 0.0
-            
-            if estimated_revenue == 0:
-                # If no services, estimate based on typical deal size
-                estimated_revenue = 75000  # Default estimate
-            
-            total_prospect_revenue += estimated_revenue
-            
-            # Safely get expected close date
-            expected_close_date = None
+                # Service query failed - skip this client
+                pass
+    
+    # Step 6: Calculate prospect revenue (with explicit error handling)
+    prospects_data = []
+    total_prospect_revenue = 0.0
+    for prospect in prospects:
+        try:
+            estimated_revenue = calculate_client_revenue(db, prospect.id)
+        except Exception as e:
+            estimated_revenue = 0.0
+        
+        if estimated_revenue == 0:
+            estimated_revenue = 75000  # Default estimate
+        
+        total_prospect_revenue += estimated_revenue
+        
+        # Safely get expected close date
+        expected_close_date = None
+        try:
             if prospect.next_follow_up_date:
                 expected_close_date = prospect.next_follow_up_date
             elif prospect.created_at:
-                # Handle both datetime and date objects
                 if hasattr(prospect.created_at, 'date'):
                     expected_close_date = prospect.created_at.date()
                 else:
                     expected_close_date = prospect.created_at
-            
-            prospects_data.append({
-                "client": prospect,
-                "estimated_revenue": estimated_revenue,
-                "expected_close_date": expected_close_date
-            })
+        except Exception:
+            pass
         
-        # Calculate won revenue (actual from active services)
-        won_data = []
-        total_won_revenue = 0.0
-        for client in won_clients:
-            # FIXED: Wrap calculate_client_revenue in try/except to prevent crashes
-            try:
-                actual_revenue = calculate_client_revenue(db, client.id)
-            except Exception as e:
-                # If revenue calculation fails, use 0 (graceful degradation)
-                actual_revenue = 0.0
-            
-            total_won_revenue += actual_revenue
-            
-            # Safely get close date
-            close_date = None
+        prospects_data.append({
+            "client": prospect,
+            "estimated_revenue": estimated_revenue,
+            "expected_close_date": expected_close_date
+        })
+    
+    # Step 7: Calculate won revenue (with explicit error handling)
+    won_data = []
+    total_won_revenue = 0.0
+    for client in won_clients:
+        try:
+            actual_revenue = calculate_client_revenue(db, client.id)
+        except Exception as e:
+            actual_revenue = 0.0
+        
+        total_won_revenue += actual_revenue
+        
+        # Safely get close date
+        close_date = None
+        try:
             if client.created_at:
                 if hasattr(client.created_at, 'date'):
                     close_date = client.created_at.date()
                 else:
                     close_date = client.created_at
-            
-            won_data.append({
-                "client": client,
-                "actual_revenue": actual_revenue,
-                "close_date": close_date
-            })
+        except Exception:
+            pass
         
-        # Calculate lost value (estimated value that was lost)
-        lost_data = []
-        total_lost_value = 0.0
-        for client in lost_clients:
-            # Estimate what the deal would have been worth
-            try:
-                estimated_value = calculate_client_revenue(db, client.id)
-            except Exception:
-                estimated_value = 0.0
-            
-            if estimated_value == 0:
-                estimated_value = 60000  # Default estimate for lost deals
-            
-            total_lost_value += estimated_value
-            
-            # Safely get lost date
-            lost_date = None
+        won_data.append({
+            "client": client,
+            "actual_revenue": actual_revenue,
+            "close_date": close_date
+        })
+    
+    # Step 8: Calculate lost value (with explicit error handling)
+    lost_data = []
+    total_lost_value = 0.0
+    for client in lost_clients:
+        try:
+            estimated_value = calculate_client_revenue(db, client.id)
+        except Exception:
+            estimated_value = 0.0
+        
+        if estimated_value == 0:
+            estimated_value = 60000  # Default estimate
+        
+        total_lost_value += estimated_value
+        
+        # Safely get lost date
+        lost_date = None
+        try:
             if client.created_at:
                 if hasattr(client.created_at, 'date'):
                     lost_date = client.created_at.date()
                 else:
                     lost_date = client.created_at
-            
-            # Get reason from notes if available
-            reason = "Not specified"
-            if client.notes:
-                latest_note = sorted(client.notes, key=lambda n: n.created_at, reverse=True)[0] if client.notes else None
-                if latest_note and "lost" in latest_note.content.lower():
-                    reason = latest_note.content[:100]  # First 100 chars
-            
-            lost_data.append({
-                "client": client,
-                "estimated_value": estimated_value,
-                "lost_date": lost_date,
-                "reason": reason
-            })
+        except Exception:
+            pass
         
-        return templates.TemplateResponse(
-            "dashboard.html",
-            {
-                "request": request,
-                "user": current_user,
-                "prospects": prospects_data,
-                "prospects_count": len(prospects),
-                "total_prospect_revenue": total_prospect_revenue,
-                "won_deals": won_data,
-                "won_count": len(won_clients),
-                "total_won_revenue": total_won_revenue,
-                "lost_deals": lost_data,
-                "lost_count": len(lost_clients),
-                "total_lost_value": total_lost_value,
-                "total_clients": total_clients,
-                "active_clients": total_active,
-                "total_prospects": len(prospects),
-                "total_revenue": total_revenue,
-                "total_revenue_formatted": f"{total_revenue:,.0f}",
-                "total_hours": total_hours,
-                "today": date.today()
-            }
-        )
-    except Exception as e:
-        import traceback
-        error_msg = f"Error in dashboard: {str(e)}\n{traceback.format_exc()}"
-        print(error_msg)
-        # Log full error for debugging
-        # Return user-friendly error page
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "error": "An error occurred loading the dashboard. Please try logging in again."
-            },
-            status_code=500
-        )
+        # Get reason from notes if available (with explicit error handling)
+        reason = "Not specified"
+        try:
+            # Access notes relationship - may trigger lazy load
+            if client.notes:
+                notes_list = list(client.notes)  # Force evaluation
+                if notes_list:
+                    latest_note = sorted(notes_list, key=lambda n: n.created_at, reverse=True)[0]
+                    if latest_note and "lost" in latest_note.content.lower():
+                        reason = latest_note.content[:100]
+        except Exception:
+            # Notes query failed - use default reason
+            pass
+        
+        lost_data.append({
+            "client": client,
+            "estimated_value": estimated_value,
+            "lost_date": lost_date,
+            "reason": reason
+        })
+    
+    # Step 9: Render dashboard (always succeeds with safe defaults)
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "user": current_user,
+            "prospects": prospects_data,
+            "prospects_count": len(prospects),
+            "total_prospect_revenue": total_prospect_revenue,
+            "won_deals": won_data,
+            "won_count": len(won_clients),
+            "total_won_revenue": total_won_revenue,
+            "lost_deals": lost_data,
+            "lost_count": len(lost_clients),
+            "total_lost_value": total_lost_value,
+            "total_clients": total_clients,
+            "active_clients": total_active,
+            "total_prospects": len(prospects),
+            "total_revenue": total_revenue,
+            "total_revenue_formatted": f"{total_revenue:,.0f}",
+            "total_hours": total_hours,
+            "today": date.today()
+        }
+    )
 
 
 # ============================================================================
