@@ -68,14 +68,19 @@ def verify_user(db: Session, email: str, password: str) -> Optional[User]:
     
     Returns:
         User object if credentials are valid, None otherwise
+    
+    Raises:
+        Exception: If database error occurs (logged with context)
     """
     if not email or not password:
         return None
     
+    email_clean = email.strip() if email else ""
+    
     try:
         # Case-insensitive email lookup
         user = db.query(User).filter(
-            func.lower(User.email) == func.lower(email.strip())
+            func.lower(User.email) == func.lower(email_clean)
         ).first()
         
         if not user:
@@ -90,9 +95,18 @@ def verify_user(db: Session, email: str, password: str) -> Optional[User]:
         
         return user
     except Exception as e:
-        # Log error but don't expose details to caller
-        print(f"Error verifying user: {e}")
-        return None
+        # Log error with full context for debugging
+        import traceback
+        error_context = {
+            "function": "verify_user",
+            "email": email_clean,
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc()
+        }
+        print(f"[AUTH ERROR] {error_context}")
+        # Re-raise to allow caller to handle with specific error messages
+        raise
 
 
 # ============================================================================
@@ -153,11 +167,60 @@ def set_user_session(request: Request, user: User) -> None:
     
     Preconditions:
     - user must exist and have an id
-    """
-    if not user or not user.id:
-        raise ValueError("Invalid user object")
     
-    request.session["user_id"] = user.id
+    Returns:
+        None on success
+    
+    Raises:
+        ValueError: If user object is invalid (logged with context)
+        RuntimeError: If session cannot be set (logged with context)
+    """
+    if not user:
+        error_context = {
+            "function": "set_user_session",
+            "error_type": "ValueError",
+            "error_message": "User object is required",
+            "user": None
+        }
+        print(f"[AUTH ERROR] {error_context}")
+        raise ValueError("User object is required")
+    
+    user_id = getattr(user, 'id', None)
+    if not hasattr(user, 'id') or user_id is None:
+        error_context = {
+            "function": "set_user_session",
+            "error_type": "ValueError",
+            "error_message": "User object missing id attribute",
+            "user_type": str(type(user)),
+            "user_id": user_id,
+            "user_email": getattr(user, 'email', 'unknown')
+        }
+        print(f"[AUTH ERROR] {error_context}")
+        raise ValueError(f"User object missing id attribute. User type: {type(user)}, User ID: {user_id}")
+    
+    try:
+        request.session["user_id"] = user_id
+    except AttributeError as e:
+        error_context = {
+            "function": "set_user_session",
+            "error_type": "AttributeError",
+            "error_message": "Session middleware not configured",
+            "user_id": user_id,
+            "user_email": getattr(user, 'email', 'unknown'),
+            "has_session": hasattr(request, 'session')
+        }
+        print(f"[AUTH ERROR] {error_context}")
+        raise RuntimeError("Session middleware not configured. Please contact support.")
+    except Exception as e:
+        error_context = {
+            "function": "set_user_session",
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "user_id": user_id,
+            "user_email": getattr(user, 'email', 'unknown')
+        }
+        print(f"[AUTH ERROR] {error_context}")
+        raise RuntimeError(f"Failed to set session: {e}")
 
 
 def clear_user_session(request: Request) -> None:

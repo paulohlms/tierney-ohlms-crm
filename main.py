@@ -286,10 +286,51 @@ async def login(
             bootstrap_admin_users()
             db.expire_all()
     except Exception as e:
-        print(f"Error checking/bootstraping users: {e}")
+        error_context = {
+            "function": "login",
+            "step": "bootstrap_users",
+            "email": email.strip() if email else "unknown",
+            "error_type": type(e).__name__,
+            "error_message": str(e)
+        }
+        print(f"[LOGIN ERROR] {error_context}")
+        import traceback
+        traceback.print_exc()
     
     # Verify credentials
-    user = verify_user(db, email, password)
+    try:
+        user = verify_user(db, email, password)
+    except Exception as e:
+        # Specific error handling for different exception types
+        error_type = type(e).__name__
+        email_clean = email.strip() if email else "unknown"
+        
+        error_context = {
+            "function": "login",
+            "step": "verify_user",
+            "email": email_clean,
+            "error_type": error_type,
+            "error_message": str(e)
+        }
+        print(f"[LOGIN ERROR] {error_context}")
+        import traceback
+        traceback.print_exc()
+        
+        # Provide precise, actionable error messages
+        if "UndefinedColumn" in error_type or "ProgrammingError" in error_type:
+            error_msg = "Database configuration error. Please contact support. (Error: Database schema mismatch)"
+        elif "OperationalError" in error_type or "Connection" in error_type:
+            error_msg = "Database connection error. Please try again in a moment."
+        elif "AttributeError" in error_type:
+            error_msg = "System configuration error. Please contact support. (Error: Missing required attributes)"
+        else:
+            error_msg = f"Login error: {error_type}. Please try again or contact support if the problem persists."
+        
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": error_msg},
+            status_code=500
+        )
     
     if not user:
         error_msg = "Invalid email or password."
@@ -300,7 +341,62 @@ async def login(
         )
     
     # Set session and redirect
-    set_user_session(request, user)
+    try:
+        set_user_session(request, user)
+    except ValueError as e:
+        # Invalid user object
+        error_context = {
+            "function": "login",
+            "step": "set_user_session",
+            "email": email.strip() if email else "unknown",
+            "user_id": getattr(user, 'id', None),
+            "error_type": "ValueError",
+            "error_message": str(e)
+        }
+        print(f"[LOGIN ERROR] {error_context}")
+        error_msg = "Invalid user data. Please contact support. (Error: User object validation failed)"
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": error_msg},
+            status_code=500
+        )
+    except RuntimeError as e:
+        # Session configuration error
+        error_context = {
+            "function": "login",
+            "step": "set_user_session",
+            "email": email.strip() if email else "unknown",
+            "user_id": getattr(user, 'id', None),
+            "error_type": "RuntimeError",
+            "error_message": str(e)
+        }
+        print(f"[LOGIN ERROR] {error_context}")
+        error_msg = str(e) if "Session middleware" in str(e) else "Session error. Please try again or contact support."
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": error_msg},
+            status_code=500
+        )
+    except Exception as e:
+        # Unexpected error
+        error_context = {
+            "function": "login",
+            "step": "set_user_session",
+            "email": email.strip() if email else "unknown",
+            "user_id": getattr(user, 'id', None),
+            "error_type": type(e).__name__,
+            "error_message": str(e)
+        }
+        print(f"[LOGIN ERROR] {error_context}")
+        import traceback
+        traceback.print_exc()
+        error_msg = f"Unexpected error during login. Please contact support. (Error: {type(e).__name__})"
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": error_msg},
+            status_code=500
+        )
+    
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
