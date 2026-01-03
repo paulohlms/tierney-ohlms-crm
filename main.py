@@ -204,7 +204,6 @@ def migrate_database_schema():
                         except: pass
                         # #endregion
                     except Exception as e:
-                        conn.rollback()
                         # #region agent log
                         try:
                             with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
@@ -232,7 +231,6 @@ def migrate_database_schema():
                         except: pass
                         # #endregion
                     except Exception as e:
-                        conn.rollback()
                         # #region agent log
                         try:
                             with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
@@ -260,7 +258,6 @@ def migrate_database_schema():
                         except: pass
                         # #endregion
                     except Exception as e:
-                        conn.rollback()
                         # #region agent log
                         try:
                             with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
@@ -288,7 +285,6 @@ def migrate_database_schema():
                         except: pass
                         # #endregion
                     except Exception as e:
-                        conn.rollback()
                         # #region agent log
                         try:
                             with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
@@ -316,7 +312,6 @@ def migrate_database_schema():
                         except: pass
                         # #endregion
                     except Exception as e:
-                        conn.rollback()
                         # #region agent log
                         try:
                             with open(r"c:\Users\PaulOhlms\Desktop\CRM Tool\.cursor\debug.log", "a") as f:
@@ -1557,7 +1552,16 @@ async def dashboard(
             try:
                 total_revenue += calculate_client_revenue(db, c.id)
             except Exception as e:
-                print(f"[DASHBOARD] Error calculating revenue for client {c.id}: {e}")
+                # If transaction is in failed state, rollback and retry
+                if "InFailedSqlTransaction" in str(type(e).__name__) or "current transaction is aborted" in str(e).lower():
+                    print(f"[DASHBOARD] Transaction failed for client {c.id}, rolling back and retrying...")
+                    db.rollback()
+                    try:
+                        total_revenue += calculate_client_revenue(db, c.id)
+                    except:
+                        print(f"[DASHBOARD] Could not calculate revenue for client {c.id} after rollback")
+                else:
+                    print(f"[DASHBOARD] Error calculating revenue for client {c.id}: {e}")
                 # Continue with 0 revenue for this client
         
         # Calculate total hours (all timesheets)
@@ -1651,7 +1655,22 @@ async def dashboard(
         total_lost_value = 0.0
         for client in lost_clients:
             # Estimate what the deal would have been worth
-            estimated_value = calculate_client_revenue(db, client.id)
+            try:
+                estimated_value = calculate_client_revenue(db, client.id)
+            except Exception as e:
+                # If transaction is in failed state, rollback and retry
+                if "InFailedSqlTransaction" in str(type(e).__name__) or "current transaction is aborted" in str(e).lower():
+                    print(f"[DASHBOARD] Transaction failed for lost client {client.id}, rolling back and retrying...")
+                    db.rollback()
+                    try:
+                        estimated_value = calculate_client_revenue(db, client.id)
+                    except:
+                        print(f"[DASHBOARD] Could not calculate revenue for lost client {client.id} after rollback")
+                        estimated_value = 0.0
+                else:
+                    print(f"[DASHBOARD] Error calculating revenue for lost client {client.id}: {e}")
+                    estimated_value = 0.0
+            
             if estimated_value == 0:
                 estimated_value = 60000  # Default estimate for lost deals
             
