@@ -1360,9 +1360,7 @@ async def dashboard(
             # Estimate what the deal would have been worth
             try:
                 estimated_value = calculate_client_revenue(db, client.id)
-            except Exception as e:
-                # Error calculating revenue - use 0
-                pass
+            except Exception:
                 estimated_value = 0.0
             
             if estimated_value == 0:
