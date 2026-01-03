@@ -36,6 +36,9 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
     Returns 0.0 if calculation fails (e.g., Service table issues, transaction errors).
     This ensures graceful degradation when database queries fail.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         services = db.query(Service).filter(
             Service.client_id == client_id,
@@ -44,22 +47,25 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
         
         revenue = 0.0
         for service in services:
-            if service.monthly_fee:
-                if service.billing_frequency == "Monthly":
-                    revenue += service.monthly_fee * 12
-                elif service.billing_frequency == "Quarterly":
-                    revenue += service.monthly_fee * 4
-                elif service.billing_frequency == "Annual":
-                    revenue += service.monthly_fee
-                else:
-                    # Default to monthly if frequency not set
-                    revenue += service.monthly_fee * 12
+            try:
+                if service.monthly_fee:
+                    if service.billing_frequency == "Monthly":
+                        revenue += service.monthly_fee * 12
+                    elif service.billing_frequency == "Quarterly":
+                        revenue += service.monthly_fee * 4
+                    elif service.billing_frequency == "Annual":
+                        revenue += service.monthly_fee
+                    else:
+                        # Default to monthly if frequency not set
+                        revenue += service.monthly_fee * 12
+            except Exception as e:
+                logger.warning(f"Error calculating revenue for service {service.id}: {e}")
+                continue
         
         return revenue
     except Exception as e:
         # Graceful degradation: return 0 if query fails
-        # This prevents InFailedSqlTransaction and other database errors from crashing the dashboard
-        # The calling code can handle 0 revenue appropriately (e.g., use default estimates)
+        logger.warning(f"Error calculating revenue for client {client_id}: {e}")
         return 0.0
 
 
@@ -81,7 +87,12 @@ def get_clients(
     - "needed": Prospects with follow-up date today or in the past
     - "overdue": Prospects with follow-up date in the past
     """
-    query = db.query(Client)
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
+    
+    try:
+        query = db.query(Client)
     
     if search:
         query = query.filter(Client.legal_name.ilike(f"%{search}%"))
@@ -126,22 +137,33 @@ def get_clients(
     else:
         query = query.order_by(Client.legal_name)
     
-    clients = query.offset(skip).limit(limit).all()
-    
-    # If sorting by revenue, sort in Python
-    if sort_by == "revenue":
-        clients_with_revenue = []
-        for client in clients:
-            revenue = calculate_client_revenue(db, client.id)
-            clients_with_revenue.append((client, revenue))
+        clients = query.offset(skip).limit(limit).all()
         
-        clients_with_revenue.sort(
-            key=lambda x: x[1], 
-            reverse=(sort_order == "desc")
-        )
-        clients = [c[0] for c in clients_with_revenue]
-    
-    return clients
+        # If sorting by revenue, sort in Python
+        if sort_by == "revenue":
+            clients_with_revenue = []
+            for client in clients:
+                try:
+                    revenue = calculate_client_revenue(db, client.id)
+                    clients_with_revenue.append((client, revenue))
+                except Exception as e:
+                    logger.warning(f"Error calculating revenue for client {client.id} during sort: {e}")
+                    clients_with_revenue.append((client, 0.0))
+            
+            clients_with_revenue.sort(
+                key=lambda x: x[1], 
+                reverse=(sort_order == "desc")
+            )
+            clients = [c[0] for c in clients_with_revenue]
+        
+        return clients
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_clients: {e}", exc_info=True)
+        db.rollback()
+        return []
+    except Exception as e:
+        logger.error(f"Unexpected error in get_clients: {e}", exc_info=True)
+        return []
 
 
 def create_client(db: Session, client: ClientCreate) -> Client:
@@ -327,7 +349,12 @@ def get_timesheets(
     search: Optional[str] = None
 ) -> List[Timesheet]:
     """Get timesheet entries with optional filtering."""
-    query = db.query(Timesheet)
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
+    
+    try:
+        query = db.query(Timesheet)
     
     if client_id:
         query = query.filter(Timesheet.client_id == client_id)
@@ -351,10 +378,17 @@ def get_timesheets(
             )
         )
     
-    # Order by most recent first
-    query = query.order_by(desc(Timesheet.entry_date), desc(Timesheet.created_at))
-    
-    return query.offset(skip).limit(limit).all()
+        # Order by most recent first
+        query = query.order_by(desc(Timesheet.entry_date), desc(Timesheet.created_at))
+        
+        return query.offset(skip).limit(limit).all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_timesheets: {e}", exc_info=True)
+        db.rollback()
+        return []
+    except Exception as e:
+        logger.error(f"Unexpected error in get_timesheets: {e}", exc_info=True)
+        return []
 
 
 def get_timesheet(db: Session, timesheet_id: int) -> Optional[Timesheet]:
@@ -406,9 +440,14 @@ def get_timesheet_summary(
     date_to: Optional[date] = None
 ) -> dict:
     """Get summary statistics for timesheets."""
-    # Build base query with filters
-    base_query = db.query(Timesheet)
-    filters = []
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Build base query with filters
+        base_query = db.query(Timesheet)
+        filters = []
     
     if client_id:
         filters.append(Timesheet.client_id == client_id)
@@ -434,16 +473,23 @@ def get_timesheet_summary(
         total_hours_query = total_hours_query.filter(*filters)
         billable_hours_query = billable_hours_query.filter(*filters)
     
-    total_hours = total_hours_query.scalar() or 0.0
-    billable_hours = billable_hours_query.scalar() or 0.0
-    total_entries = base_query.count()
-    
-    return {
-        "total_hours": float(total_hours),
-        "billable_hours": float(billable_hours),
-        "non_billable_hours": float(total_hours - billable_hours),
-        "total_entries": total_entries
-    }
+        total_hours = total_hours_query.scalar() or 0.0
+        billable_hours = billable_hours_query.scalar() or 0.0
+        total_entries = base_query.count()
+        
+        return {
+            "total_hours": float(total_hours),
+            "billable_hours": float(billable_hours),
+            "non_billable_hours": float(total_hours - billable_hours),
+            "total_entries": total_entries
+        }
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_timesheet_summary: {e}", exc_info=True)
+        db.rollback()
+        return {"total_hours": 0.0, "billable_hours": 0.0, "non_billable_hours": 0.0, "total_entries": 0}
+    except Exception as e:
+        logger.error(f"Unexpected error in get_timesheet_summary: {e}", exc_info=True)
+        return {"total_hours": 0.0, "billable_hours": 0.0, "non_billable_hours": 0.0, "total_entries": 0}
 
 
 # User CRUD

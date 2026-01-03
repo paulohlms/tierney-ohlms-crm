@@ -17,6 +17,15 @@ import csv
 import io
 import math
 import os
+import logging
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 from database import get_db, engine, Base
 from models import Client, Contact, Service, Task, Note, Timesheet
@@ -443,56 +452,101 @@ async def clients_list(
     db: Session = Depends(get_db)
 ):
     """Display list of all clients with optional search, filtering, and sorting."""
-    current_user = get_current_user(request)
-    if not current_user:
+    try:
+        current_user = get_current_user(request)
+        if not current_user:
+            logger.warning("Clients list access denied: No authenticated user")
+            return RedirectResponse(url="/login", status_code=303)
+    except Exception as e:
+        logger.error(f"Error getting current user: {e}", exc_info=True)
         return RedirectResponse(url="/login", status_code=303)
     
-    clients = get_clients(
-        db, 
-        search=search,
-        status_filter=status,
-        entity_type_filter=entity_type,
-        follow_up_filter=follow_up,
-        sort_by=sort_by,
-        sort_order=sort_order
-    )
+    # Get clients with error handling
+    clients = []
+    try:
+        clients = get_clients(
+            db, 
+            search=search,
+            status_filter=status,
+            entity_type_filter=entity_type,
+            follow_up_filter=follow_up,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+        logger.info(f"Loaded {len(clients)} clients with filters: search={search}, status={status}")
+    except SQLAlchemyError as e:
+        logger.error(f"Database error loading clients: {e}", exc_info=True)
+        db.rollback()
+        clients = []
+    except Exception as e:
+        logger.error(f"Unexpected error loading clients: {e}", exc_info=True)
+        clients = []
     
-    # Calculate revenue and timesheet summaries for each client
+    # Calculate revenue and timesheet summaries for each client with error handling
     from crud import get_timesheet_summary
     clients_with_data = []
     for client in clients:
-        revenue = calculate_client_revenue(db, client.id)
-        timesheet_summary = get_timesheet_summary(db, client_id=client.id)
+        try:
+            revenue = calculate_client_revenue(db, client.id)
+        except Exception as e:
+            logger.warning(f"Error calculating revenue for client {client.id}: {e}")
+            revenue = 0.0
+        
+        try:
+            timesheet_summary = get_timesheet_summary(db, client_id=client.id)
+        except Exception as e:
+            logger.warning(f"Error getting timesheet summary for client {client.id}: {e}")
+            timesheet_summary = {"total_hours": 0.0, "billable_hours": 0.0, "total_entries": 0}
+        
         clients_with_data.append({
             "client": client,
             "revenue": revenue,
-            "total_hours": timesheet_summary["total_hours"],
-            "billable_hours": timesheet_summary["billable_hours"],
-            "timesheet_entries": timesheet_summary["total_entries"]
+            "total_hours": timesheet_summary.get("total_hours", 0.0),
+            "billable_hours": timesheet_summary.get("billable_hours", 0.0),
+            "timesheet_entries": timesheet_summary.get("total_entries", 0)
         })
     
-    # Get unique values for filter dropdowns
-    all_clients = db.query(Client).all()
-    statuses = sorted(set(c.status for c in all_clients if c.status))
-    entity_types = sorted(set(c.entity_type for c in all_clients if c.entity_type))
+    # Get unique values for filter dropdowns with error handling
+    statuses = []
+    entity_types = []
+    try:
+        all_clients = db.query(Client).all()
+        statuses = sorted(set(c.status for c in all_clients if c.status))
+        entity_types = sorted(set(c.entity_type for c in all_clients if c.entity_type))
+    except Exception as e:
+        logger.warning(f"Error getting filter options: {e}")
+        statuses = []
+        entity_types = []
     
-    return templates.TemplateResponse(
-        "clients_list.html",
-        {
-            "request": request, 
-            "clients_with_revenue": clients_with_data,
-            "search": search,
-            "status_filter": status,
-            "entity_type_filter": entity_type,
-            "follow_up_filter": follow_up,
-            "sort_by": sort_by,
-            "sort_order": sort_order,
-            "statuses": statuses,
-            "entity_types": entity_types,
-            "today": date.today(),
-            "user": current_user
-        }
-    )
+    # Render template with error handling
+    try:
+        return templates.TemplateResponse(
+            "clients_list.html",
+            {
+                "request": request, 
+                "clients_with_revenue": clients_with_data,
+                "search": search,
+                "status_filter": status,
+                "entity_type_filter": entity_type,
+                "follow_up_filter": follow_up,
+                "sort_by": sort_by,
+                "sort_order": sort_order,
+                "statuses": statuses,
+                "entity_types": entity_types,
+                "today": date.today(),
+                "user": current_user
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error rendering clients list template: {e}", exc_info=True)
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": "An error occurred loading the clients list. Please try again."
+            },
+            status_code=500
+        )
 
 
 # ============================================================================
@@ -514,13 +568,19 @@ async def prospects_list(
     try:
         current_user = get_current_user(request)
         if not current_user:
+            logger.warning("Prospects list access denied: No authenticated user")
             return RedirectResponse(url="/login", status_code=303)
         
         permission_check = require_permission(current_user, "view_clients")
         if permission_check:
             return permission_check
-        
-        # Get all prospects (clients with status="Prospect")
+    except Exception as e:
+        logger.error(f"Error in authentication/authorization: {e}", exc_info=True)
+        return RedirectResponse(url="/login", status_code=303)
+    
+    # Get prospects with error handling
+    prospects = []
+    try:
         prospects = get_clients(
             db,
             search=search,
@@ -529,67 +589,78 @@ async def prospects_list(
             sort_by=sort_by,
             sort_order=sort_order
         )
+        logger.info(f"Loaded {len(prospects)} prospects")
+    except SQLAlchemyError as e:
+        logger.error(f"Database error loading prospects: {e}", exc_info=True)
+        db.rollback()
+        prospects = []
+    except Exception as e:
+        logger.error(f"Unexpected error loading prospects: {e}", exc_info=True)
+        prospects = []
         
-        # Calculate estimated revenue for each prospect
-        prospects_with_data = []
-        for prospect in prospects:
+    # Calculate estimated revenue for each prospect with error handling
+    prospects_with_data = []
+    for prospect in prospects:
+        try:
             estimated_revenue = calculate_client_revenue(db, prospect.id)
             if estimated_revenue == 0:
-                # Default estimate if no services
-                estimated_revenue = 75000
+                estimated_revenue = 75000  # Default estimate
             
-            # Determine stage based on follow-up date and notes
+            # Determine stage
             stage_value = "New"
             if prospect.next_follow_up_date:
                 days_until = (prospect.next_follow_up_date - date.today()).days
                 if days_until < 0:
-                    stage_value = "Negotiation"  # Overdue = active negotiation
+                    stage_value = "Negotiation"
                 elif days_until <= 7:
                     stage_value = "Proposal"
                 elif days_until <= 30:
                     stage_value = "Contacted"
             
-            # Check if stage filter matches
+            # Check filters
             if stage and stage != stage_value:
                 continue
             
-            # Check owner filter
             if owner and prospect.owner_name and owner.lower() not in prospect.owner_name.lower():
                 continue
             
-            # Safely get expected close date
+            # Get expected close date
             expected_close_date = None
             if prospect.next_follow_up_date:
                 expected_close_date = prospect.next_follow_up_date
             elif prospect.created_at:
-                # Handle both datetime and date objects
                 if hasattr(prospect.created_at, 'date'):
                     expected_close_date = prospect.created_at.date()
                 else:
                     expected_close_date = prospect.created_at
             
-            # Format estimated_revenue for display
-            estimated_revenue_formatted = f"{estimated_revenue:,.0f}"
-            
             prospects_with_data.append({
                 "client": prospect,
                 "estimated_revenue": estimated_revenue,
-                "estimated_revenue_formatted": estimated_revenue_formatted,
+                "estimated_revenue_formatted": f"{estimated_revenue:,.0f}",
                 "stage": stage_value,
                 "expected_close_date": expected_close_date
             })
-        
-        # Get unique owners for filter
+        except Exception as e:
+            logger.warning(f"Error processing prospect {prospect.id}: {e}")
+            continue
+    
+    # Get unique owners for filter with error handling
+    owners = []
+    try:
         all_prospects = db.query(Client).filter(Client.status == "Prospect").all()
         owners = sorted(set(p.owner_name for p in all_prospects if p.owner_name))
-        
-        # Calculate pipeline totals
-        total_estimated = sum(p["estimated_revenue"] for p in prospects_with_data)
-        total_count = len(prospects_with_data)
-        
-        # Format total_estimated for display (add commas)
-        total_estimated_formatted = f"{total_estimated:,.0f}"
-        
+    except Exception as e:
+        logger.warning(f"Error getting owners list: {e}")
+        owners = []
+    
+    # Calculate pipeline totals
+    total_estimated = sum(p["estimated_revenue"] for p in prospects_with_data)
+    total_count = len(prospects_with_data)
+    total_estimated_formatted = f"{total_estimated:,.0f}"
+    
+    # Render template with error handling
+    try:
         return templates.TemplateResponse(
             "prospects_list.html",
             {
@@ -1580,76 +1651,119 @@ async def timesheets_list(
     # Check if user can view all timesheets
     can_view_all = has_permission(current_user, "view_all_timesheets")
     
-    # Get timesheets with permission filtering
-    if can_view_all:
-        # Can view all - use provided filters
-        timesheets = get_timesheets(
-            db,
-            client_id=client_id,
-            staff_member=staff_member,
-            date_from=date_from_parsed,
-            date_to=date_to_parsed,
-            search=search
-        )
-    else:
-        # Can only view own - force staff_member filter
-        timesheets = get_timesheets(
-            db,
-            client_id=client_id,
-            staff_member=current_user.get("name"),  # Force own entries
-            date_from=date_from_parsed,
-            date_to=date_to_parsed,
-            search=search
-        )
+        # Get timesheets with permission filtering
+    timesheets = []
+    try:
+        if can_view_all:
+            # Can view all - use provided filters
+            timesheets = get_timesheets(
+                db,
+                client_id=client_id,
+                staff_member=staff_member,
+                date_from=date_from_parsed,
+                date_to=date_to_parsed,
+                search=search
+            )
+        else:
+            # Can only view own - force staff_member filter
+            # FIXED: current_user is a User object, not a dict! Use current_user.name
+            timesheets = get_timesheets(
+                db,
+                client_id=client_id,
+                staff_member=current_user.name,  # FIXED BUG: was current_user.get("name")
+                date_from=date_from_parsed,
+                date_to=date_to_parsed,
+                search=search
+            )
+        logger.info(f"Loaded {len(timesheets)} timesheet entries")
+    except SQLAlchemyError as e:
+        logger.error(f"Database error loading timesheets: {e}", exc_info=True)
+        db.rollback()
+        timesheets = []
+    except Exception as e:
+        logger.error(f"Unexpected error loading timesheets: {e}", exc_info=True)
+        timesheets = []
     
     # Get all clients for filter dropdown
-    all_clients = db.query(Client).order_by(Client.legal_name).all()
+    all_clients = []
+    try:
+        all_clients = db.query(Client).order_by(Client.legal_name).all()
+    except Exception as e:
+        logger.warning(f"Error loading clients for filter: {e}")
+        all_clients = []
     
-    # Get summary statistics
+    # Get summary statistics with error handling
     today = date.today()
     week_start = today - timedelta(days=today.weekday())
     month_start = date(today.year, today.month, 1)
     
-    summary_week = get_timesheet_summary(
-        db,
-        staff_member=current_user.get("name"),
-        date_from=week_start,
-        date_to=today
-    )
+    summary_week = {"total_hours": 0.0, "billable_hours": 0.0}
+    summary_month = {"total_hours": 0.0, "billable_hours": 0.0}
+    summary_all = {"total_hours": 0.0, "billable_hours": 0.0}
     
-    summary_month = get_timesheet_summary(
-        db,
-        staff_member=current_user.get("name"),
-        date_from=month_start,
-        date_to=today
-    )
+    try:
+        # FIXED: current_user.name instead of current_user.get("name")
+        summary_week = get_timesheet_summary(
+            db,
+            staff_member=current_user.name,  # FIXED BUG: was current_user.get("name")
+            date_from=week_start,
+            date_to=today
+        )
+    except Exception as e:
+        logger.warning(f"Error getting week summary: {e}")
     
-    summary_all = get_timesheet_summary(
-        db,
-        client_id=client_id,
-        staff_member=staff_member,
-        date_from=date_from_parsed,
-        date_to=date_to_parsed
-    )
+    try:
+        # FIXED: current_user.name instead of current_user.get("name")
+        summary_month = get_timesheet_summary(
+            db,
+            staff_member=current_user.name,  # FIXED BUG: was current_user.get("name")
+            date_from=month_start,
+            date_to=today
+        )
+    except Exception as e:
+        logger.warning(f"Error getting month summary: {e}")
     
-    return templates.TemplateResponse(
-        "timesheets_list.html",
-        {
-            "request": request,
-            "user": current_user,
-            "timesheets": timesheets,
-            "clients": all_clients,
-            "selected_client_id": client_id,
-            "selected_staff_member": staff_member,
-            "date_from": date_from,
-            "date_to": date_to,
-            "search": search,
-            "summary_week": summary_week,
-            "summary_month": summary_month,
-            "summary_all": summary_all,
-            "today": today
-        }
-    )
+    try:
+        summary_all = get_timesheet_summary(
+            db,
+            client_id=client_id,
+            staff_member=staff_member,
+            date_from=date_from_parsed,
+            date_to=date_to_parsed
+        )
+    except Exception as e:
+        logger.warning(f"Error getting all summary: {e}")
+    
+    # Render template with error handling
+    try:
+        return templates.TemplateResponse(
+            "timesheets_list.html",
+            {
+                "request": request,
+                "user": current_user,
+                "timesheets": timesheets,
+                "clients": all_clients,
+                "selected_client_id": client_id,
+                "selected_staff_member": staff_member,
+                "date_from": date_from,
+                "date_to": date_to,
+                "search": search,
+                "summary_week": summary_week,
+                "summary_month": summary_month,
+                "summary_all": summary_all,
+                "today": today
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error rendering timesheets list template: {e}", exc_info=True)
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": "An error occurred loading the timesheets list. Please try again."
+            },
+            status_code=500
+        )
 
 
 @app.get("/timesheets/new", response_class=HTMLResponse)
