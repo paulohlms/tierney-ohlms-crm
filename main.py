@@ -1243,10 +1243,7 @@ async def dashboard(
     try:
         current_user = get_current_user(request)
         if not current_user:
-            print("[DASHBOARD] No current user found")
             return RedirectResponse(url="/login", status_code=303)
-        
-        print(f"[DASHBOARD] User: {current_user.email}, Permissions: {current_user.permissions}")
         
         permission_check = require_permission(current_user, "view_dashboard")
         if permission_check:
@@ -1266,7 +1263,8 @@ async def dashboard(
             try:
                 total_revenue += calculate_client_revenue(db, c.id)
             except Exception as e:
-                print(f"[DASHBOARD] Error calculating revenue for client {c.id}: {e}")
+                # Error calculating revenue - continue with 0
+                pass
                 # Continue with 0 revenue for this client
         
         # Calculate total hours (all timesheets)
@@ -1274,7 +1272,8 @@ async def dashboard(
             timesheet_summary_all = get_timesheet_summary(db)
             total_hours = timesheet_summary_all.get("total_hours", 0.0)
         except Exception as e:
-            print(f"[DASHBOARD] Error getting timesheet summary: {e}")
+            # Error getting timesheet summary - use 0
+            pass
             total_hours = 0.0
         
         # Filter for 2025 (clients created in 2025 or with 2025 dates)
@@ -1362,7 +1361,8 @@ async def dashboard(
             try:
                 estimated_value = calculate_client_revenue(db, client.id)
             except Exception as e:
-                print(f"[DASHBOARD] Error calculating revenue for lost client {client.id}: {e}")
+                # Error calculating revenue - use 0
+                pass
                 estimated_value = 0.0
             
             if estimated_value == 0:
@@ -1420,25 +1420,15 @@ async def dashboard(
         error_msg = f"Error in dashboard: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
         # Log full error for debugging
-        print(f"[DASHBOARD ERROR] Full traceback:\n{traceback.format_exc()}")
-        
-        # Return error page with more details (for debugging - remove in production)
-        error_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head><title>Dashboard Error</title></head>
-        <body style="font-family: Arial; padding: 20px;">
-            <h1>Dashboard Error</h1>
-            <p><strong>Error:</strong> {str(e)}</p>
-            <details>
-                <summary>Technical Details (for debugging)</summary>
-                <pre style="background: #f0f0f0; padding: 10px; overflow: auto; font-size: 12px;">{traceback.format_exc()}</pre>
-            </details>
-            <p><a href="/login">Go to Login Page</a></p>
-        </body>
-        </html>
-        """
-        return HTMLResponse(content=error_html, status_code=500)
+        # Return user-friendly error page
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": "An error occurred loading the dashboard. Please try logging in again."
+            },
+            status_code=500
+        )
 
 
 # ============================================================================
