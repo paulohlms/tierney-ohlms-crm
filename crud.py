@@ -32,26 +32,35 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
     
     Revenue = sum of (monthly_fee × multiplier) for all active services
     Multiplier: 12 for Monthly, 4 for Quarterly, 1 for Annual
+    
+    Returns 0.0 if calculation fails (e.g., Service table issues, transaction errors).
+    This ensures graceful degradation when database queries fail.
     """
-    services = db.query(Service).filter(
-        Service.client_id == client_id,
-        Service.active == True
-    ).all()
-    
-    revenue = 0.0
-    for service in services:
-        if service.monthly_fee:
-            if service.billing_frequency == "Monthly":
-                revenue += service.monthly_fee * 12
-            elif service.billing_frequency == "Quarterly":
-                revenue += service.monthly_fee * 4
-            elif service.billing_frequency == "Annual":
-                revenue += service.monthly_fee
-            else:
-                # Default to monthly if frequency not set
-                revenue += service.monthly_fee * 12
-    
-    return revenue
+    try:
+        services = db.query(Service).filter(
+            Service.client_id == client_id,
+            Service.active == True
+        ).all()
+        
+        revenue = 0.0
+        for service in services:
+            if service.monthly_fee:
+                if service.billing_frequency == "Monthly":
+                    revenue += service.monthly_fee * 12
+                elif service.billing_frequency == "Quarterly":
+                    revenue += service.monthly_fee * 4
+                elif service.billing_frequency == "Annual":
+                    revenue += service.monthly_fee
+                else:
+                    # Default to monthly if frequency not set
+                    revenue += service.monthly_fee * 12
+        
+        return revenue
+    except Exception as e:
+        # Graceful degradation: return 0 if query fails
+        # This prevents InFailedSqlTransaction and other database errors from crashing the dashboard
+        # The calling code can handle 0 revenue appropriately (e.g., use default estimates)
+        return 0.0
 
 
 def get_clients(

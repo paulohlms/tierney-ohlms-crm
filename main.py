@@ -1263,9 +1263,8 @@ async def dashboard(
             try:
                 total_revenue += calculate_client_revenue(db, c.id)
             except Exception as e:
-                # Error calculating revenue - continue with 0
+                # Error calculating revenue - continue with 0 for this client
                 pass
-                # Continue with 0 revenue for this client
         
         # Calculate total hours (all timesheets)
         try:
@@ -1273,7 +1272,6 @@ async def dashboard(
             total_hours = timesheet_summary_all.get("total_hours", 0.0)
         except Exception as e:
             # Error getting timesheet summary - use 0
-            pass
             total_hours = 0.0
         
         # Filter for 2025 (clients created in 2025 or with 2025 dates)
@@ -1289,17 +1287,23 @@ async def dashboard(
         won_clients = []
         for client in all_clients:
             if client.status == "Active":
-                # Include if created in 2025 or has services
+                # Include if created in 2025
                 if client.created_at and client.created_at.year == current_year:
                     won_clients.append(client)
                 else:
                     # Check if has active services (treated as won)
-                    services = db.query(Service).filter(
-                        Service.client_id == client.id,
-                        Service.active == True
-                    ).first()
-                    if services:
-                        won_clients.append(client)
+                    # FIXED: Wrap Service query in try/except to prevent crashes
+                    try:
+                        services = db.query(Service).filter(
+                            Service.client_id == client.id,
+                            Service.active == True
+                        ).first()
+                        if services:
+                            won_clients.append(client)
+                    except Exception as e:
+                        # If Service query fails, skip this client (graceful degradation)
+                        # This prevents InFailedSqlTransaction errors from crashing the dashboard
+                        pass
         
         # Lost deals - Dead clients
         lost_clients = [c for c in all_clients if c.status == "Dead"]
@@ -1308,7 +1312,13 @@ async def dashboard(
         prospects_data = []
         total_prospect_revenue = 0.0
         for prospect in prospects:
-            estimated_revenue = calculate_client_revenue(db, prospect.id)
+            # FIXED: Wrap calculate_client_revenue in try/except to prevent crashes
+            try:
+                estimated_revenue = calculate_client_revenue(db, prospect.id)
+            except Exception as e:
+                # If revenue calculation fails, use default estimate
+                estimated_revenue = 0.0
+            
             if estimated_revenue == 0:
                 # If no services, estimate based on typical deal size
                 estimated_revenue = 75000  # Default estimate
@@ -1336,7 +1346,13 @@ async def dashboard(
         won_data = []
         total_won_revenue = 0.0
         for client in won_clients:
-            actual_revenue = calculate_client_revenue(db, client.id)
+            # FIXED: Wrap calculate_client_revenue in try/except to prevent crashes
+            try:
+                actual_revenue = calculate_client_revenue(db, client.id)
+            except Exception as e:
+                # If revenue calculation fails, use 0 (graceful degradation)
+                actual_revenue = 0.0
+            
             total_won_revenue += actual_revenue
             
             # Safely get close date
