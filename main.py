@@ -681,10 +681,15 @@ async def prospects_list(
             }
         )
     except Exception as e:
-        import traceback
-        error_msg = f"Error in prospects_list: {str(e)}\n{traceback.format_exc()}"
-        print(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg)
+        logger.error(f"Error rendering prospects list template: {e}", exc_info=True)
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": "An error occurred loading the prospects list. Please try again."
+            },
+            status_code=500
+        )
 
 
 @app.get("/prospects/export")
