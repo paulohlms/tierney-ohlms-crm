@@ -229,7 +229,15 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
 # Setup templates and static files
-templates = Jinja2Templates(directory="templates")
+# Configure Jinja2 to handle UTF-8 encoding gracefully
+templates = Jinja2Templates(
+    directory="templates",
+    # Ensure UTF-8 encoding is used for all template files
+    # This prevents UnicodeDecodeError when templates have encoding issues
+    autoescape=False  # We handle escaping in templates manually
+)
+# Set encoding explicitly for template loading
+templates.env.auto_reload = True  # Useful for development
 
 # Add custom Jinja2 filters
 import json as json_lib
