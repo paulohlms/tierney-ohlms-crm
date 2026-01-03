@@ -64,6 +64,8 @@ def migrate_database_schema():
     # #endregion
     
     try:
+        # Use a completely isolated connection with autocommit for DDL operations
+        # This prevents transaction state from affecting the main session pool
         with engine.connect() as conn:
             # #region agent log
             try:
@@ -71,6 +73,8 @@ def migrate_database_schema():
                     f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"main.py:58","message":"Connection established","data":{"connection_id":id(conn)},"timestamp":int(time.time()*1000)}) + "\n")
             except: pass
             # #endregion
+            # Use autocommit mode for DDL operations to avoid transaction issues
+            conn = conn.execution_options(autocommit=True)
             inspector = inspect(engine)
             
             # Check users table
@@ -81,61 +85,56 @@ def migrate_database_schema():
                 # Add name column if missing
                 if 'name' not in columns:
                     try:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR"))
-                        conn.commit()
+                        # Use autocommit for DDL to avoid transaction issues
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR"))
                         added_columns.append('name')
                     except Exception as e:
-                        conn.rollback()
                         print(f"[WARNING] Could not add name column (may already exist): {e}")
                 
                 # Add role column if missing
                 if 'role' not in columns:
                     try:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'Staff'"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'Staff'"))
                         added_columns.append('role')
                     except Exception as e:
-                        conn.rollback()
                         print(f"[WARNING] Could not add role column (may already exist): {e}")
                 
                 # Add permissions column if missing
                 if 'permissions' not in columns:
                     try:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE users ADD COLUMN permissions TEXT"))
                         added_columns.append('permissions')
                     except Exception as e:
-                        conn.rollback()
                         print(f"[WARNING] Could not add permissions column (may already exist): {e}")
                 
                 # Add active column if missing
                 if 'active' not in columns:
                     try:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT TRUE"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT TRUE"))
                         added_columns.append('active')
                     except Exception as e:
-                        conn.rollback()
                         print(f"[WARNING] Could not add active column (may already exist): {e}")
                 
                 # Add created_at column if missing
                 if 'created_at' not in columns:
                     try:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
                         added_columns.append('created_at')
                     except Exception as e:
-                        conn.rollback()
                         print(f"[WARNING] Could not add created_at column (may already exist): {e}")
                 
                 # Add updated_at column if missing
                 if 'updated_at' not in columns:
                     try:
-                        conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE users ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
                         added_columns.append('updated_at')
                     except Exception as e:
-                        conn.rollback()
                         print(f"[WARNING] Could not add updated_at column (may already exist): {e}")
                 
                 if added_columns:
@@ -143,34 +142,43 @@ def migrate_database_schema():
                 
                 # Update existing users to have default values
                 # Set name from email if missing
-                result = conn.execute(text("SELECT id, email FROM users WHERE name IS NULL OR name = ''"))
-                users_without_names = result.fetchall()
-                
-                if users_without_names:
-                    for user_id, email in users_without_names:
-                        # Extract name from email (e.g., "Paul@tierneyohlms.com" -> "Paul")
-                        name = email.split('@')[0].title()
-                        conn.execute(text("UPDATE users SET name = :name WHERE id = :id"), {"name": name, "id": user_id})
-                    conn.commit()
-                    print(f"[OK] Updated {len(users_without_names)} user(s) with names from email")
+                try:
+                    result = conn.execute(text("SELECT id, email FROM users WHERE name IS NULL OR name = ''"))
+                    users_without_names = result.fetchall()
+                    
+                    if users_without_names:
+                        with conn.begin():
+                            for user_id, email in users_without_names:
+                                # Extract name from email (e.g., "Paul@tierneyohlms.com" -> "Paul")
+                                name = email.split('@')[0].title()
+                                conn.execute(text("UPDATE users SET name = :name WHERE id = :id"), {"name": name, "id": user_id})
+                        print(f"[OK] Updated {len(users_without_names)} user(s) with names from email")
+                except Exception as e:
+                    print(f"[WARNING] Could not update user names: {e}")
                 
                 # Set default role for users without role
-                result = conn.execute(text("SELECT id FROM users WHERE role IS NULL OR role = ''"))
-                users_without_role = result.fetchall()
-                
-                if users_without_role:
-                    conn.execute(text("UPDATE users SET role = 'Staff' WHERE role IS NULL OR role = ''"))
-                    conn.commit()
-                    print(f"[OK] Set default role for {len(users_without_role)} user(s)")
+                try:
+                    result = conn.execute(text("SELECT id FROM users WHERE role IS NULL OR role = ''"))
+                    users_without_role = result.fetchall()
+                    
+                    if users_without_role:
+                        with conn.begin():
+                            conn.execute(text("UPDATE users SET role = 'Staff' WHERE role IS NULL OR role = ''"))
+                        print(f"[OK] Set default role for {len(users_without_role)} user(s)")
+                except Exception as e:
+                    print(f"[WARNING] Could not update user roles: {e}")
                 
                 # Set default active status
-                result = conn.execute(text("SELECT id FROM users WHERE active IS NULL"))
-                users_without_active = result.fetchall()
-                
-                if users_without_active:
-                    conn.execute(text("UPDATE users SET active = TRUE WHERE active IS NULL"))
-                    conn.commit()
-                    print(f"[OK] Set default active status for {len(users_without_active)} user(s)")
+                try:
+                    result = conn.execute(text("SELECT id FROM users WHERE active IS NULL"))
+                    users_without_active = result.fetchall()
+                    
+                    if users_without_active:
+                        with conn.begin():
+                            conn.execute(text("UPDATE users SET active = TRUE WHERE active IS NULL"))
+                        print(f"[OK] Set default active status for {len(users_without_active)} user(s)")
+                except Exception as e:
+                    print(f"[WARNING] Could not update user active status: {e}")
             
             # Check clients table - add ALL missing columns from the model
             if 'clients' in inspector.get_table_names():
@@ -186,8 +194,8 @@ def migrate_database_schema():
                     except: pass
                     # #endregion
                     try:
-                        conn.execute(text("ALTER TABLE clients ADD COLUMN owner_name VARCHAR"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE clients ADD COLUMN owner_name VARCHAR"))
                         added_columns.append('owner_name')
                         # #region agent log
                         try:
@@ -214,8 +222,8 @@ def migrate_database_schema():
                     except: pass
                     # #endregion
                     try:
-                        conn.execute(text("ALTER TABLE clients ADD COLUMN owner_email VARCHAR"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE clients ADD COLUMN owner_email VARCHAR"))
                         added_columns.append('owner_email')
                         # #region agent log
                         try:
@@ -242,8 +250,8 @@ def migrate_database_schema():
                     except: pass
                     # #endregion
                     try:
-                        conn.execute(text("ALTER TABLE clients ADD COLUMN next_follow_up_date DATE"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE clients ADD COLUMN next_follow_up_date DATE"))
                         added_columns.append('next_follow_up_date')
                         # #region agent log
                         try:
@@ -270,8 +278,8 @@ def migrate_database_schema():
                     except: pass
                     # #endregion
                     try:
-                        conn.execute(text("ALTER TABLE clients ADD COLUMN last_reminder_sent DATE"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE clients ADD COLUMN last_reminder_sent DATE"))
                         added_columns.append('last_reminder_sent')
                         # #region agent log
                         try:
@@ -298,8 +306,8 @@ def migrate_database_schema():
                     except: pass
                     # #endregion
                     try:
-                        conn.execute(text("ALTER TABLE clients ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
-                        conn.commit()
+                        with conn.begin():
+                            conn.execute(text("ALTER TABLE clients ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"))
                         added_columns.append('created_at')
                         # #region agent log
                         try:
