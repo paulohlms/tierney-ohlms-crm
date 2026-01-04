@@ -95,19 +95,20 @@
             <tbody>
                 {% for service in services %}
                 <tr>
-                    <td>{{ service.name }}</td>
-                    <td>{{ service.billing_type|title }}</td>
+                    <td>{{ service.service_type }}</td>
+                    <td>{{ service.billing_frequency or '-' }}</td>
                     <td>
-                        {% if service.billing_type == 'hourly' and service.hourly_rate %}
-                            ${{ "%.2f"|format(service.hourly_rate) }}/hr
-                        {% elif service.price %}
-                            ${{ "%.2f"|format(service.price) }}
+                        {% if service.monthly_fee %}
+                            ${{ "%.2f"|format(service.monthly_fee) }}
+                            {% if service.billing_frequency %}
+                                /{{ service.billing_frequency.lower() }}
+                            {% endif %}
                         {% else %}
                             -
                         {% endif %}
                     </td>
-                    <td>{{ service.special_projects or '-' }}</td>
-                    <td><span class="status-badge status-{{ service.status.lower() }}">{{ service.status }}</span></td>
+                    <td>-</td>
+                    <td><span class="status-badge status-{% if service.active %}active{% else %}inactive{% endif %}">{% if service.active %}Active{% else %}Inactive{% endif %}</span></td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -118,3 +119,4 @@
     </div>
 </div>
 {% endblock %}
+
