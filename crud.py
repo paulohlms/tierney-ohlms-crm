@@ -93,50 +93,50 @@ def get_clients(
     
     try:
         query = db.query(Client)
-    
-    if search:
-        query = query.filter(Client.legal_name.ilike(f"%{search}%"))
-    
-    if status_filter:
-        query = query.filter(Client.status == status_filter)
-    
-    if entity_type_filter:
-        query = query.filter(Client.entity_type == entity_type_filter)
-    
-    if follow_up_filter:
-        today = date.today()
-        if follow_up_filter == "needed":
-            # Prospects needing follow-up (due today or past)
-            query = query.filter(
-                Client.status == "Prospect",
-                Client.next_follow_up_date <= today
-            )
-        elif follow_up_filter == "overdue":
-            # Prospects overdue for follow-up (past date only)
-            query = query.filter(
-                Client.status == "Prospect",
-                Client.next_follow_up_date < today
-            )
-    
-    # Sorting
-    if sort_by == "name":
-        if sort_order == "desc":
-            query = query.order_by(desc(Client.legal_name))
+        
+        if search:
+            query = query.filter(Client.legal_name.ilike(f"%{search}%"))
+        
+        if status_filter:
+            query = query.filter(Client.status == status_filter)
+        
+        if entity_type_filter:
+            query = query.filter(Client.entity_type == entity_type_filter)
+        
+        if follow_up_filter:
+            today = date.today()
+            if follow_up_filter == "needed":
+                # Prospects needing follow-up (due today or past)
+                query = query.filter(
+                    Client.status == "Prospect",
+                    Client.next_follow_up_date <= today
+                )
+            elif follow_up_filter == "overdue":
+                # Prospects overdue for follow-up (past date only)
+                query = query.filter(
+                    Client.status == "Prospect",
+                    Client.next_follow_up_date < today
+                )
+        
+        # Sorting
+        if sort_by == "name":
+            if sort_order == "desc":
+                query = query.order_by(desc(Client.legal_name))
+            else:
+                query = query.order_by(asc(Client.legal_name))
+        elif sort_by == "status":
+            if sort_order == "desc":
+                query = query.order_by(desc(Client.status))
+            else:
+                query = query.order_by(asc(Client.status))
+        elif sort_by == "revenue":
+            # For revenue sorting, we'll need to calculate it in Python
+            # since SQLite doesn't easily support subqueries in ORDER BY
+            # We'll sort in Python after fetching
+            query = query.order_by(Client.legal_name)
         else:
-            query = query.order_by(asc(Client.legal_name))
-    elif sort_by == "status":
-        if sort_order == "desc":
-            query = query.order_by(desc(Client.status))
-        else:
-            query = query.order_by(asc(Client.status))
-    elif sort_by == "revenue":
-        # For revenue sorting, we'll need to calculate it in Python
-        # since SQLite doesn't easily support subqueries in ORDER BY
-        # We'll sort in Python after fetching
-        query = query.order_by(Client.legal_name)
-    else:
-        query = query.order_by(Client.legal_name)
-    
+            query = query.order_by(Client.legal_name)
+        
         clients = query.offset(skip).limit(limit).all()
         
         # If sorting by revenue, sort in Python
