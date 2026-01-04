@@ -653,8 +653,7 @@ async def prospects_list(
     for prospect in prospects:
         try:
             estimated_revenue = calculate_client_revenue(db, prospect.id)
-            if estimated_revenue == 0:
-                estimated_revenue = 75000  # Default estimate
+            # Don't use default - show actual revenue (0 if no services)
             
             # Determine stage
             stage_value = "New"
