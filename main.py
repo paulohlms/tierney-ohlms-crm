@@ -51,11 +51,11 @@ from auth import (
     get_default_permissions, can_edit_timesheet, can_delete_timesheet
 )
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
-
 # Import migration utilities
 from migrations import migrate_database_schema
+
+# Note: Base.metadata.create_all() moved to startup event to prevent crashes
+# if database is unavailable during import
 
 # Auto-bootstrap: Create admin users if none exist
 def bootstrap_admin_users():
@@ -132,13 +132,24 @@ def bootstrap_admin_users():
 
 
 def reset_admin_users():
-    """Forcefully reset/create admin users with default passwords."""
+    """
+    Forcefully reset/create admin users with default passwords.
+    
+    Returns:
+        dict with status ("success" or "error"), created count, updated count, and message
+    """
     from models import User
     from auth import hash_password, get_default_permissions
     import json
     from datetime import datetime
     
-    db = next(get_db())
+    db = None
+    try:
+        db = next(get_db())
+    except Exception as e:
+        logger.error(f"[RESET USERS] Failed to get database connection: {e}", exc_info=True)
+        return {"status": "error", "message": f"Database connection failed: {str(e)}", "created": 0, "updated": 0}
+    
     try:
         admin_emails = [
             "admin@tierneyohlms.com",
@@ -199,9 +210,13 @@ def reset_admin_users():
         import traceback
         traceback.print_exc()
         db.rollback()
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": str(e), "created": 0, "updated": 0}
     finally:
-        db.close()
+        if db:
+            try:
+                db.close()
+            except Exception as e:
+                logger.warning(f"[RESET USERS] Error closing database connection: {e}")
 
 # Initialize FastAPI app
 app = FastAPI(title="Tierney & Ohlms CRM")
@@ -210,27 +225,62 @@ app = FastAPI(title="Tierney & Ohlms CRM")
 @app.on_event("startup")
 async def startup_event():
     """
-    Run database migrations and bootstrap users on startup.
+    Run database initialization, migrations, and bootstrap users on startup.
     
     State transitions:
-    1. Run database migrations → log result
-    2. Reset admin users → ensure they exist
-    3. Log completion
+    1. Create database tables → log result (won't crash if DB unavailable)
+    2. Run database migrations → log result
+    3. Reset admin users → ensure they exist
+    4. Log completion
+    
+    This function is designed to be resilient - if database is unavailable,
+    the app will still start but database operations will fail gracefully.
     """
+    logger.info("=" * 70)
+    logger.info("Starting CRM Application")
+    logger.info("=" * 70)
+    
+    # Step 1: Create database tables (if they don't exist)
     try:
-        print("[STARTUP] Running database migrations...")
-        migration_success = migrate_database_schema()
-        if not migration_success:
-            print("[STARTUP WARNING] Migration completed with errors - some columns may be missing")
-        
-        print("[STARTUP] Resetting admin users...")
-        reset_admin_users()
-        print("[STARTUP] Startup complete!")
+        logger.info("[STARTUP] Creating database tables...")
+        Base.metadata.create_all(bind=engine)
+        logger.info("[STARTUP] Database tables created/verified successfully")
     except Exception as e:
-        print(f"[STARTUP ERROR] Startup error: {e}")
-        import traceback
-        traceback.print_exc()
-        # Don't fail startup - application should still be usable, but log the error
+        logger.error(f"[STARTUP ERROR] Failed to create database tables: {e}", exc_info=True)
+        logger.warning("[STARTUP] Application will start but database operations may fail")
+        # Continue - app should still start
+    
+    # Step 2: Run database migrations
+    try:
+        logger.info("[STARTUP] Running database migrations...")
+        migration_success = migrate_database_schema()
+        if migration_success:
+            logger.info("[STARTUP] Database migrations completed successfully")
+        else:
+            logger.warning("[STARTUP] Database migrations completed with errors - some columns may be missing")
+    except Exception as e:
+        logger.error(f"[STARTUP ERROR] Database migration failed: {e}", exc_info=True)
+        logger.warning("[STARTUP] Continuing without migrations - application will start")
+        # Continue - app should still start
+    
+    # Step 3: Reset/Create admin users
+    try:
+        logger.info("[STARTUP] Resetting admin users...")
+        result = reset_admin_users()
+        if result and result.get("status") == "success":
+            created = result.get("created", 0)
+            updated = result.get("updated", 0)
+            logger.info(f"[STARTUP] Admin users ready: {created} created, {updated} updated")
+        else:
+            logger.warning("[STARTUP] Admin user reset had issues - check logs")
+    except Exception as e:
+        logger.error(f"[STARTUP ERROR] Failed to reset admin users: {e}", exc_info=True)
+        logger.warning("[STARTUP] Continuing without admin users - login may not work")
+        # Continue - app should still start
+    
+    logger.info("=" * 70)
+    logger.info("Startup complete! Application is ready.")
+    logger.info("=" * 70)
 
 # Add session middleware for authentication
 # Use environment variable if set, otherwise use default (change in production!)
