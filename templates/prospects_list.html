@@ -25,12 +25,12 @@
     <tbody>
         {% for item in prospects %}
         {% set client = item.client %}
-        {% set first_contact = client.contacts[0] if client.contacts else None %}
+        {% set contact = item.contact %}
         <tr>
-            <td>{{ first_contact.name if first_contact else client.legal_name }}</td>
+            <td>{{ contact.name if contact and contact.name else client.legal_name }}</td>
             <td>{{ client.legal_name }}</td>
-            <td>{{ first_contact.email if first_contact and first_contact.email else '-' }}</td>
-            <td>{{ first_contact.phone if first_contact and first_contact.phone else '-' }}</td>
+            <td>{{ contact.email if contact and contact.email else '-' }}</td>
+            <td>{{ contact.phone if contact and contact.phone else '-' }}</td>
             <td><span class="status-badge status-{{ item.stage.lower().replace(' ', '-') }}">{{ item.stage }}</span></td>
             <td>
                 {% if item.estimated_revenue %}
