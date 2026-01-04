@@ -1122,12 +1122,44 @@ async def client_detail(
             "entries": month_summary["total_entries"]
         }
     
-    # Get related data (already loaded via relationships)
+    # Get related data (explicitly load relationships)
+    contacts = []
+    services = []
+    tasks = []
+    notes = []
+    try:
+        contacts = list(client.contacts) if client.contacts else []
+    except Exception as e:
+        logger.warning(f"Error loading contacts for client {client_id}: {e}")
+        contacts = []
+    
+    try:
+        services = list(client.services) if client.services else []
+    except Exception as e:
+        logger.warning(f"Error loading services for client {client_id}: {e}")
+        services = []
+    
+    try:
+        tasks = list(client.tasks) if client.tasks else []
+    except Exception as e:
+        logger.warning(f"Error loading tasks for client {client_id}: {e}")
+        tasks = []
+    
+    try:
+        notes = list(client.notes) if client.notes else []
+    except Exception as e:
+        logger.warning(f"Error loading notes for client {client_id}: {e}")
+        notes = []
+    
     return templates.TemplateResponse(
         "client_detail.html",
         {
             "request": request,
             "client": client,
+            "contacts": contacts,
+            "services": services,
+            "tasks": tasks,
+            "notes": notes,
             "user": current_user,
             "timesheet_summary_all": summary_all,
             "timesheet_summary_month": summary_month,
