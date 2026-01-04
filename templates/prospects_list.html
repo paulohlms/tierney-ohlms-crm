@@ -23,24 +23,25 @@
         </tr>
     </thead>
     <tbody>
-        {% for prospect in prospects %}
+        {% for item in prospects %}
+        {% set client = item.client %}
+        {% set first_contact = client.contacts[0] if client.contacts else None %}
         <tr>
-            <td>{{ prospect.name }}</td>
-            <td>{{ prospect.company or '-' }}</td>
-            <td>{{ prospect.email or '-' }}</td>
-            <td>{{ prospect.phone or '-' }}</td>
-            <td><span class="status-badge status-{{ prospect.stage.lower().replace(' ', '-') }}">{{ prospect.stage }}</span></td>
+            <td>{{ first_contact.name if first_contact else client.legal_name }}</td>
+            <td>{{ client.legal_name }}</td>
+            <td>{{ first_contact.email if first_contact and first_contact.email else '-' }}</td>
+            <td>{{ first_contact.phone if first_contact and first_contact.phone else '-' }}</td>
+            <td><span class="status-badge status-{{ item.stage.lower().replace(' ', '-') }}">{{ item.stage }}</span></td>
             <td>
-                <!-- IMPROVEMENT 4: Only show revenue if it exists -->
-                {% if prospect.estimated_revenue %}
-                    ${{ "{:,.2f}".format(prospect.estimated_revenue) }}
+                {% if item.estimated_revenue %}
+                    ${{ "{:,.0f}".format(item.estimated_revenue) }}
                 {% else %}
                     <span class="text-muted">Not specified</span>
                 {% endif %}
             </td>
-            <td>{{ prospect.next_follow_up.strftime('%Y-%m-%d') if prospect.next_follow_up else '-' }}</td>
+            <td>{{ item.expected_close_date.strftime('%Y-%m-%d') if item.expected_close_date else '-' }}</td>
             <td>
-                <a href="/prospects/{{ prospect.id }}" class="btn btn-sm btn-secondary">View</a>
+                <a href="/clients/{{ client.id }}" class="btn btn-sm btn-secondary">View</a>
             </td>
         </tr>
         {% endfor %}

@@ -684,8 +684,18 @@ async def prospects_list(
                 else:
                     expected_close_date = prospect.created_at
             
+            # Get first contact for display (name, email, phone)
+            first_contact = None
+            try:
+                if prospect.contacts:
+                    first_contact = prospect.contacts[0] if len(prospect.contacts) > 0 else None
+            except Exception as e:
+                logger.warning(f"Error loading contacts for prospect {prospect.id}: {e}")
+                first_contact = None
+            
             prospects_with_data.append({
                 "client": prospect,
+                "contact": first_contact,  # First contact for display
                 "estimated_revenue": estimated_revenue,
                 "estimated_revenue_formatted": f"{estimated_revenue:,.0f}",
                 "stage": stage_value,
@@ -899,18 +909,13 @@ async def prospect_create(
     )
     
     try:
+        # Create client with status='Prospect'
         client = create_client(db, client_data)
+        logger.info(f"Created prospect client: {client.id} - {client.legal_name}")
         
-        # If notes provided, create a note
-        if notes:
-            try:
-                note_data = NoteCreate(client_id=client.id, content=notes)
-                create_note(db, note_data)
-            except Exception as e:
-                logger.warning(f"Could not create note for prospect: {e}")
-        
-        # If contact info provided and different from company name, create a contact
-        if name and company and name != company:
+        # Always create a contact if name is provided (even if name == company)
+        # This ensures contact info is stored and can be displayed in the prospects table
+        if name:
             try:
                 contact_data = ContactCreate(
                     client_id=client.id,
@@ -920,12 +925,33 @@ async def prospect_create(
                     role="Primary Contact"
                 )
                 create_contact(db, contact_data)
+                logger.info(f"Created contact for prospect {client.id}: {name}")
             except Exception as e:
-                logger.warning(f"Could not create contact for prospect: {e}")
+                logger.warning(f"Could not create contact for prospect {client.id}: {e}", exc_info=True)
+                # Continue even if contact creation fails - client is already created
+        
+        # If notes provided, create a note
+        if notes:
+            try:
+                note_data = NoteCreate(client_id=client.id, content=notes)
+                create_note(db, note_data)
+                logger.info(f"Created note for prospect {client.id}")
+            except Exception as e:
+                logger.warning(f"Could not create note for prospect {client.id}: {e}", exc_info=True)
+                # Continue even if note creation fails
+        
+        # Commit all changes
+        db.commit()
+        logger.info(f"Successfully created prospect: {client.id} - {client.legal_name}")
         
         return RedirectResponse(url="/prospects", status_code=303)
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating prospect: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: Failed to create prospect")
     except Exception as e:
         logger.error(f"Error creating prospect: {e}", exc_info=True)
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create prospect: {str(e)}")
 
 
