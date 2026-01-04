@@ -168,26 +168,55 @@ def get_clients(
 
 def create_client(db: Session, client: ClientCreate) -> Client:
     """Create a new client."""
-    db_client = Client(**client.dict())
-    db.add(db_client)
-    db.commit()
-    db.refresh(db_client)
-    return db_client
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
+    
+    try:
+        db_client = Client(**client.dict())
+        db.add(db_client)
+        db.commit()
+        db.refresh(db_client)
+        logger.info(f"Created client {db_client.id}: {db_client.legal_name}")
+        return db_client
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating client: {e}", exc_info=True)
+        db.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Error creating client: {e}", exc_info=True)
+        db.rollback()
+        raise
 
 
 def update_client(db: Session, client_id: int, client_update: ClientUpdate) -> Optional[Client]:
     """Update an existing client."""
-    db_client = get_client(db, client_id)
-    if not db_client:
-        return None
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
     
-    update_data = client_update.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_client, field, value)
-    
-    db.commit()
-    db.refresh(db_client)
-    return db_client
+    try:
+        db_client = get_client(db, client_id)
+        if not db_client:
+            logger.warning(f"Client {client_id} not found for update")
+            return None
+        
+        update_data = client_update.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(db_client, field, value)
+        
+        db.commit()
+        db.refresh(db_client)
+        logger.info(f"Updated client {client_id}: {db_client.legal_name}")
+        return db_client
+    except SQLAlchemyError as e:
+        logger.error(f"Database error updating client {client_id}: {e}", exc_info=True)
+        db.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Error updating client {client_id}: {e}", exc_info=True)
+        db.rollback()
+        raise
 
 
 def update_client_field(db: Session, client_id: int, field: str, value: any) -> Optional[Client]:
@@ -220,23 +249,53 @@ def update_client_field(db: Session, client_id: int, field: str, value: any) -> 
 
 def delete_client(db: Session, client_id: int) -> bool:
     """Delete a client (cascade deletes related records)."""
-    db_client = get_client(db, client_id)
-    if not db_client:
-        return False
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
     
-    db.delete(db_client)
-    db.commit()
-    return True
+    try:
+        db_client = get_client(db, client_id)
+        if not db_client:
+            logger.warning(f"Client {client_id} not found for deletion")
+            return False
+        
+        client_name = db_client.legal_name
+        db.delete(db_client)
+        db.commit()
+        logger.info(f"Deleted client {client_id}: {client_name}")
+        return True
+    except SQLAlchemyError as e:
+        logger.error(f"Database error deleting client {client_id}: {e}", exc_info=True)
+        db.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting client {client_id}: {e}", exc_info=True)
+        db.rollback()
+        raise
 
 
 # Contact CRUD
 def create_contact(db: Session, contact: ContactCreate) -> Contact:
     """Create a new contact."""
-    db_contact = Contact(**contact.dict())
-    db.add(db_contact)
-    db.commit()
-    db.refresh(db_contact)
-    return db_contact
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
+    
+    try:
+        db_contact = Contact(**contact.dict())
+        db.add(db_contact)
+        db.commit()
+        db.refresh(db_contact)
+        logger.info(f"Created contact {db_contact.id} for client {db_contact.client_id}: {db_contact.name}")
+        return db_contact
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating contact: {e}", exc_info=True)
+        db.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Error creating contact: {e}", exc_info=True)
+        db.rollback()
+        raise
 
 
 def delete_contact(db: Session, contact_id: int) -> bool:
@@ -253,11 +312,25 @@ def delete_contact(db: Session, contact_id: int) -> bool:
 # Service CRUD
 def create_service(db: Session, service: ServiceCreate) -> Service:
     """Create a new service."""
-    db_service = Service(**service.dict())
-    db.add(db_service)
-    db.commit()
-    db.refresh(db_service)
-    return db_service
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
+    
+    try:
+        db_service = Service(**service.dict())
+        db.add(db_service)
+        db.commit()
+        db.refresh(db_service)
+        logger.info(f"Created service {db_service.id} for client {db_service.client_id}: {db_service.service_type}")
+        return db_service
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating service: {e}", exc_info=True)
+        db.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Error creating service: {e}", exc_info=True)
+        db.rollback()
+        raise
 
 
 def update_service(db: Session, service_id: int, active: bool) -> Optional[Service]:
@@ -286,11 +359,25 @@ def delete_service(db: Session, service_id: int) -> bool:
 # Task CRUD
 def create_task(db: Session, task: TaskCreate) -> Task:
     """Create a new task."""
-    db_task = Task(**task.dict())
-    db.add(db_task)
-    db.commit()
-    db.refresh(db_task)
-    return db_task
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
+    
+    try:
+        db_task = Task(**task.dict())
+        db.add(db_task)
+        db.commit()
+        db.refresh(db_task)
+        logger.info(f"Created task {db_task.id} for client {db_task.client_id}: {db_task.title}")
+        return db_task
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating task: {e}", exc_info=True)
+        db.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Error creating task: {e}", exc_info=True)
+        db.rollback()
+        raise
 
 
 def update_task_status(db: Session, task_id: int, status: str) -> Optional[Task]:
@@ -319,11 +406,25 @@ def delete_task(db: Session, task_id: int) -> bool:
 # Note CRUD
 def create_note(db: Session, note: NoteCreate) -> Note:
     """Create a new note."""
-    db_note = Note(**note.dict())
-    db.add(db_note)
-    db.commit()
-    db.refresh(db_note)
-    return db_note
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
+    
+    try:
+        db_note = Note(**note.dict())
+        db.add(db_note)
+        db.commit()
+        db.refresh(db_note)
+        logger.info(f"Created note {db_note.id} for client {db_note.client_id}")
+        return db_note
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating note: {e}", exc_info=True)
+        db.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Error creating note: {e}", exc_info=True)
+        db.rollback()
+        raise
 
 
 def delete_note(db: Session, note_id: int) -> bool:
@@ -398,11 +499,25 @@ def get_timesheet(db: Session, timesheet_id: int) -> Optional[Timesheet]:
 
 def create_timesheet(db: Session, timesheet: TimesheetCreate) -> Timesheet:
     """Create a new timesheet entry."""
-    db_timesheet = Timesheet(**timesheet.dict())
-    db.add(db_timesheet)
-    db.commit()
-    db.refresh(db_timesheet)
-    return db_timesheet
+    import logging
+    from sqlalchemy.exc import SQLAlchemyError
+    logger = logging.getLogger(__name__)
+    
+    try:
+        db_timesheet = Timesheet(**timesheet.dict())
+        db.add(db_timesheet)
+        db.commit()
+        db.refresh(db_timesheet)
+        logger.info(f"Created timesheet {db_timesheet.id} for client {db_timesheet.client_id}: {db_timesheet.hours}h by {db_timesheet.staff_member}")
+        return db_timesheet
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating timesheet: {e}", exc_info=True)
+        db.rollback()
+        raise
+    except Exception as e:
+        logger.error(f"Error creating timesheet: {e}", exc_info=True)
+        db.rollback()
+        raise
 
 
 def update_timesheet(db: Session, timesheet_id: int, timesheet_update: TimesheetUpdate) -> Optional[Timesheet]:

@@ -1,6 +1,197 @@
 {% extends "base.html" %}
 
+{% block title %}Dashboard - CRM Tool{% endblock %}
+
 {% block content %}
-<h1>Dashboard</h1>
-<p>Login successful.</p>
+<div class="page-header">
+    <h1>Sales Pipeline Dashboard</h1>
+    <div class="header-actions">
+        <a href="/clients" class="btn btn-secondary">Clients</a>
+        <a href="/prospects" class="btn btn-secondary">Prospects</a>
+        <a href="/timesheets" class="btn btn-secondary">Timesheets</a>
+    </div>
+</div>
+
+<!-- Summary Statistics -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+    <div class="detail-section" style="text-align: center; padding: 1.5rem;">
+        <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Total Clients</div>
+        <div style="font-size: 2.5rem; font-weight: bold; color: #2c3e50; margin-bottom: 0.25rem;">{{ total_clients }}</div>
+        <div style="font-size: 0.85rem; color: #666;">{{ active_clients }} active</div>
+    </div>
+    
+    <div class="detail-section" style="text-align: center; padding: 1.5rem;">
+        <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Total Revenue</div>
+        <div style="font-size: 2.5rem; font-weight: bold; color: #27ae60; margin-bottom: 0.25rem;">${{ total_revenue_formatted }}</div>
+        <div style="font-size: 0.85rem; color: #666;">Active clients</div>
+    </div>
+    
+    <div class="detail-section" style="text-align: center; padding: 1.5rem;">
+        <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Total Hours</div>
+        <div style="font-size: 2.5rem; font-weight: bold; color: #3498db; margin-bottom: 0.25rem;">{{ "{:.1f}".format(total_hours) }}</div>
+        <div style="font-size: 0.85rem; color: #666;">Logged this year</div>
+    </div>
+    
+    <div class="detail-section" style="text-align: center; padding: 1.5rem;">
+        <div style="font-size: 0.9rem; color: #666; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Prospects</div>
+        <div style="font-size: 2.5rem; font-weight: bold; color: #f39c12; margin-bottom: 0.25rem;">{{ prospects_count }}</div>
+        <div style="font-size: 0.85rem; color: #666;">In pipeline</div>
+    </div>
+</div>
+
+<!-- Pipeline Sections -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; margin-bottom: 2rem;">
+    <!-- Prospects Pipeline -->
+    <div class="detail-section">
+        <h2 style="margin-bottom: 1rem; color: #f39c12; border-bottom: 2px solid #f39c12; padding-bottom: 0.5rem;">
+            Prospects Pipeline
+            <span style="font-size: 0.9rem; font-weight: normal; color: #666; margin-left: 0.5rem;">
+                ({{ prospects_count }} prospects, ${{ "{:,.0f}".format(total_prospect_revenue) }} estimated)
+            </span>
+        </h2>
+        {% if prospects %}
+        <div style="max-height: 400px; overflow-y: auto;">
+            <table class="data-table" style="font-size: 0.9rem;">
+                <thead>
+                    <tr>
+                        <th>Client</th>
+                        <th>Est. Revenue</th>
+                        <th>Expected Close</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in prospects %}
+                    <tr>
+                        <td>
+                            <a href="/clients/{{ item.client.id }}" class="link-primary" style="font-weight: 500;">
+                                {{ item.client.legal_name }}
+                            </a>
+                        </td>
+                        <td>${{ "{:,.0f}".format(item.estimated_revenue) }}</td>
+                        <td>
+                            {% if item.expected_close_date %}
+                                {{ item.expected_close_date.strftime('%Y-%m-%d') }}
+                            {% else %}
+                                <span style="color: #999;">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color: #666; padding: 2rem; text-align: center;">No prospects in pipeline.</p>
+        {% endif %}
+        <div style="margin-top: 1rem;">
+            <a href="/prospects" class="btn btn-secondary btn-sm">View All Prospects</a>
+        </div>
+    </div>
+    
+    <!-- Won Deals -->
+    <div class="detail-section">
+        <h2 style="margin-bottom: 1rem; color: #27ae60; border-bottom: 2px solid #27ae60; padding-bottom: 0.5rem;">
+            Won Deals
+            <span style="font-size: 0.9rem; font-weight: normal; color: #666; margin-left: 0.5rem;">
+                ({{ won_count }} deals, ${{ "{:,.0f}".format(total_won_revenue) }} revenue)
+            </span>
+        </h2>
+        {% if won_deals %}
+        <div style="max-height: 400px; overflow-y: auto;">
+            <table class="data-table" style="font-size: 0.9rem;">
+                <thead>
+                    <tr>
+                        <th>Client</th>
+                        <th>Revenue</th>
+                        <th>Close Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in won_deals %}
+                    <tr>
+                        <td>
+                            <a href="/clients/{{ item.client.id }}" class="link-primary" style="font-weight: 500;">
+                                {{ item.client.legal_name }}
+                            </a>
+                        </td>
+                        <td style="color: #27ae60; font-weight: 500;">${{ "{:,.0f}".format(item.actual_revenue) }}</td>
+                        <td>
+                            {% if item.close_date %}
+                                {{ item.close_date.strftime('%Y-%m-%d') if item.close_date else '-' }}
+                            {% else %}
+                                <span style="color: #999;">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color: #666; padding: 2rem; text-align: center;">No won deals this year.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Lost Deals -->
+{% if lost_deals %}
+<div class="detail-section" style="margin-top: 2rem;">
+    <h2 style="margin-bottom: 1rem; color: #e74c3c; border-bottom: 2px solid #e74c3c; padding-bottom: 0.5rem;">
+        Lost Deals
+        <span style="font-size: 0.9rem; font-weight: normal; color: #666; margin-left: 0.5rem;">
+            ({{ lost_count }} deals, ${{ "{:,.0f}".format(total_lost_value) }} estimated value)
+        </span>
+    </h2>
+    <div style="max-height: 300px; overflow-y: auto;">
+        <table class="data-table" style="font-size: 0.9rem;">
+            <thead>
+                <tr>
+                    <th>Client</th>
+                    <th>Est. Value</th>
+                    <th>Lost Date</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in lost_deals %}
+                <tr>
+                    <td>
+                        <a href="/clients/{{ item.client.id }}" class="link-primary" style="font-weight: 500;">
+                            {{ item.client.legal_name }}
+                        </a>
+                    </td>
+                    <td style="color: #e74c3c;">${{ "{:,.0f}".format(item.estimated_value) }}</td>
+                    <td>
+                        {% if item.lost_date %}
+                            {{ item.lost_date.strftime('%Y-%m-%d') if item.lost_date else '-' }}
+                        {% else %}
+                            <span style="color: #999;">-</span>
+                        {% endif %}
+                    </td>
+                    <td style="color: #666; font-size: 0.85rem;">
+                        {{ item.reason[:50] }}{% if item.reason|length > 50 %}...{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<style>
+.link-primary {
+    color: #3498db;
+    text-decoration: none;
+}
+.link-primary:hover {
+    text-decoration: underline;
+}
+.detail-section {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+</style>
 {% endblock %}

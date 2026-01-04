@@ -1766,9 +1766,7 @@ async def dashboard(
         except Exception as e:
             estimated_revenue = 0.0
         
-        if estimated_revenue == 0:
-            estimated_revenue = 75000  # Default estimate
-        
+        # Don't use default - show actual revenue (0 if no services)
         total_prospect_revenue += estimated_revenue
         
         # Safely get expected close date
@@ -1827,9 +1825,7 @@ async def dashboard(
         except Exception:
             estimated_value = 0.0
         
-        if estimated_value == 0:
-            estimated_value = 60000  # Default estimate
-        
+        # Don't use default - show actual value (0 if no services)
         total_lost_value += estimated_value
         
         # Safely get lost date
