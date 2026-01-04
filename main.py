@@ -839,6 +839,96 @@ async def prospects_export(
     )
 
 
+@app.get("/prospects/new", response_class=HTMLResponse)
+async def prospect_new_form(request: Request):
+    """Display form to create a new prospect."""
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+    
+    permission_check = require_permission(current_user, "create_clients")
+    if permission_check:
+        return permission_check
+    
+    return templates.TemplateResponse(
+        "prospect_form.html",
+        {"request": request, "user": current_user, "today": date.today()}
+    )
+
+
+@app.post("/prospects/new")
+async def prospect_create(
+    request: Request,
+    name: str = Form(...),
+    company: Optional[str] = Form(None),
+    email: Optional[str] = Form(None),
+    phone: Optional[str] = Form(None),
+    source: Optional[str] = Form(None),
+    stage: Optional[str] = Form("New"),
+    estimated_revenue: Optional[float] = Form(None),
+    next_follow_up: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Create a new prospect (client with status='Prospect')."""
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+    
+    permission_check = require_permission(current_user, "create_clients")
+    if permission_check:
+        return permission_check
+    
+    # Parse follow-up date
+    follow_up_date = None
+    if next_follow_up:
+        try:
+            follow_up_date = datetime.strptime(next_follow_up, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    
+    # Create client with status='Prospect'
+    client_data = ClientCreate(
+        legal_name=company if company else name,  # Use company name or contact name
+        entity_type=None,
+        fiscal_year_end=None,
+        status="Prospect",
+        owner_name=current_user.name if current_user else None,
+        owner_email=current_user.email if current_user else None,
+        next_follow_up_date=follow_up_date
+    )
+    
+    try:
+        client = create_client(db, client_data)
+        
+        # If notes provided, create a note
+        if notes:
+            try:
+                note_data = NoteCreate(client_id=client.id, content=notes)
+                create_note(db, note_data)
+            except Exception as e:
+                logger.warning(f"Could not create note for prospect: {e}")
+        
+        # If contact info provided and different from company name, create a contact
+        if name and company and name != company:
+            try:
+                contact_data = ContactCreate(
+                    client_id=client.id,
+                    name=name,
+                    email=email,
+                    phone=phone,
+                    role="Primary Contact"
+                )
+                create_contact(db, contact_data)
+            except Exception as e:
+                logger.warning(f"Could not create contact for prospect: {e}")
+        
+        return RedirectResponse(url="/prospects", status_code=303)
+    except Exception as e:
+        logger.error(f"Error creating prospect: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create prospect: {str(e)}")
+
+
 @app.post("/prospects/{client_id}/convert")
 async def convert_prospect_to_client(
     request: Request,
@@ -1164,6 +1254,36 @@ async def client_delete(
 # Contact Routes
 # ============================================================================
 
+@app.get("/clients/{client_id}/contacts/new", response_class=HTMLResponse)
+async def contact_new_form(
+    request: Request,
+    client_id: int,
+    db: Session = Depends(get_db)
+):
+    """Display form to create a new contact for a client."""
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+    
+    permission_check = require_permission(current_user, "create_contacts")
+    if permission_check:
+        return permission_check
+    
+    # Verify client exists
+    client = get_client(db, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    return templates.TemplateResponse(
+        "contact_form.html",
+        {
+            "request": request,
+            "client": client,
+            "user": current_user
+        }
+    )
+
+
 @app.post("/clients/{client_id}/contacts/new")
 async def contact_create(
     request: Request,
@@ -1228,6 +1348,37 @@ async def contact_delete(
 # ============================================================================
 # Service Routes
 # ============================================================================
+
+@app.get("/clients/{client_id}/services/new", response_class=HTMLResponse)
+async def service_new_form(
+    request: Request,
+    client_id: int,
+    db: Session = Depends(get_db)
+):
+    """Display form to create a new service for a client."""
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+    
+    permission_check = require_permission(current_user, "create_services")
+    if permission_check:
+        return permission_check
+    
+    # Verify client exists
+    client = get_client(db, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    return templates.TemplateResponse(
+        "service_form.html",
+        {
+            "request": request,
+            "client": client,
+            "user": current_user,
+            "service": None
+        }
+    )
+
 
 @app.post("/clients/{client_id}/services/new")
 async def service_create(

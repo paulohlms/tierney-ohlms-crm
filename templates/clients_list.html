@@ -18,7 +18,7 @@
     </form>
 </div>
 
-{% if clients %}
+{% if clients_with_revenue %}
 <table class="data-table">
     <thead>
         <tr>
@@ -31,16 +31,16 @@
         </tr>
     </thead>
     <tbody>
-        {% for client in clients %}
+        {% for item in clients_with_revenue %}
         <tr>
-            <td><a href="/clients/{{ client.id }}" class="link-primary">{{ client.legal_name }}</a></td>
-            <td>{{ client.entity_type or '-' }}</td>
-            <td>{{ client.ein_last4 or '-' }}</td>
-            <td>{{ client.fiscal_year_end or '-' }}</td>
-            <td><span class="status-badge status-{{ client.status.lower() }}">{{ client.status }}</span></td>
+            <td><a href="/clients/{{ item.client.id }}" class="link-primary">{{ item.client.legal_name }}</a></td>
+            <td>{{ item.client.entity_type or '-' }}</td>
+            <td>{{ item.client.ein_last4 or '-' }}</td>
+            <td>{{ item.client.fiscal_year_end or '-' }}</td>
+            <td><span class="status-badge status-{{ item.client.status.lower() }}">{{ item.client.status }}</span></td>
             <td>
-                <a href="/clients/{{ client.id }}" class="btn btn-sm btn-secondary">View</a>
-                <a href="/clients/{{ client.id }}/edit" class="btn btn-sm btn-secondary">Edit</a>
+                <a href="/clients/{{ item.client.id }}" class="btn btn-sm btn-secondary">View</a>
+                <a href="/clients/{{ item.client.id }}/edit" class="btn btn-sm btn-secondary">Edit</a>
             </td>
         </tr>
         {% endfor %}
