@@ -355,29 +355,29 @@ def get_timesheets(
     
     try:
         query = db.query(Timesheet)
-    
-    if client_id:
-        query = query.filter(Timesheet.client_id == client_id)
-    
-    if staff_member:
-        query = query.filter(Timesheet.staff_member == staff_member)
-    
-    if date_from:
-        query = query.filter(Timesheet.entry_date >= date_from)
-    
-    if date_to:
-        query = query.filter(Timesheet.entry_date <= date_to)
-    
-    if search:
-        search_term = f"%{search}%"
-        query = query.filter(
-            or_(
-                Timesheet.description.ilike(search_term),
-                Timesheet.project_task.ilike(search_term),
-                Timesheet.staff_member.ilike(search_term)
+        
+        if client_id:
+            query = query.filter(Timesheet.client_id == client_id)
+        
+        if staff_member:
+            query = query.filter(Timesheet.staff_member == staff_member)
+        
+        if date_from:
+            query = query.filter(Timesheet.entry_date >= date_from)
+        
+        if date_to:
+            query = query.filter(Timesheet.entry_date <= date_to)
+        
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                or_(
+                    Timesheet.description.ilike(search_term),
+                    Timesheet.project_task.ilike(search_term),
+                    Timesheet.staff_member.ilike(search_term)
+                )
             )
-        )
-    
+        
         # Order by most recent first
         query = query.order_by(desc(Timesheet.entry_date), desc(Timesheet.created_at))
         
