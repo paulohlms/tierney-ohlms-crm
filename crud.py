@@ -448,31 +448,31 @@ def get_timesheet_summary(
         # Build base query with filters
         base_query = db.query(Timesheet)
         filters = []
-    
-    if client_id:
-        filters.append(Timesheet.client_id == client_id)
-    
-    if staff_member:
-        filters.append(Timesheet.staff_member == staff_member)
-    
-    if date_from:
-        filters.append(Timesheet.entry_date >= date_from)
-    
-    if date_to:
-        filters.append(Timesheet.entry_date <= date_to)
-    
-    # Apply filters to base query
-    if filters:
-        base_query = base_query.filter(*filters)
-    
-    # Calculate totals
-    total_hours_query = db.query(func.sum(Timesheet.hours))
-    billable_hours_query = db.query(func.sum(Timesheet.hours)).filter(Timesheet.billable == True)
-    
-    if filters:
-        total_hours_query = total_hours_query.filter(*filters)
-        billable_hours_query = billable_hours_query.filter(*filters)
-    
+        
+        if client_id:
+            filters.append(Timesheet.client_id == client_id)
+        
+        if staff_member:
+            filters.append(Timesheet.staff_member == staff_member)
+        
+        if date_from:
+            filters.append(Timesheet.entry_date >= date_from)
+        
+        if date_to:
+            filters.append(Timesheet.entry_date <= date_to)
+        
+        # Apply filters to base query
+        if filters:
+            base_query = base_query.filter(*filters)
+        
+        # Calculate totals
+        total_hours_query = db.query(func.sum(Timesheet.hours))
+        billable_hours_query = db.query(func.sum(Timesheet.hours)).filter(Timesheet.billable == True)
+        
+        if filters:
+            total_hours_query = total_hours_query.filter(*filters)
+            billable_hours_query = billable_hours_query.filter(*filters)
+        
         total_hours = total_hours_query.scalar() or 0.0
         billable_hours = billable_hours_query.scalar() or 0.0
         total_entries = base_query.count()
@@ -482,6 +482,23 @@ def get_timesheet_summary(
             "billable_hours": float(billable_hours),
             "non_billable_hours": float(total_hours - billable_hours),
             "total_entries": total_entries
+        }
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_timesheet_summary: {e}", exc_info=True)
+        db.rollback()
+        return {
+            "total_hours": 0.0,
+            "billable_hours": 0.0,
+            "non_billable_hours": 0.0,
+            "total_entries": 0
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error in get_timesheet_summary: {e}", exc_info=True)
+        return {
+            "total_hours": 0.0,
+            "billable_hours": 0.0,
+            "non_billable_hours": 0.0,
+            "total_entries": 0
         }
     except SQLAlchemyError as e:
         logger.error(f"Database error in get_timesheet_summary: {e}", exc_info=True)
