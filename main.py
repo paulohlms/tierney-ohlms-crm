@@ -1430,20 +1430,36 @@ async def service_create(
         raise HTTPException(status_code=404, detail="Client not found")
     
     try:
+        # Convert monthly_fee to float if provided
+        monthly_fee_value = None
+        if monthly_fee is not None:
+            try:
+                monthly_fee_value = float(monthly_fee)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid monthly_fee value: {monthly_fee}, setting to None")
+                monthly_fee_value = None
+        
         service_data = ServiceCreate(
             client_id=client_id,
             service_type=service_type,
             billing_frequency=billing_frequency,
-            monthly_fee=monthly_fee,
+            monthly_fee=monthly_fee_value,
             active=True
         )
-        create_service(db, service_data)
+        created_service = create_service(db, service_data)
+        logger.info(f"Successfully created service {created_service.id} for client {client_id}")
         return RedirectResponse(url=f"/clients/{client_id}", status_code=303)
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating service for client {client_id}: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: Failed to create service. Please check the service data and try again.")
+    except ValueError as e:
+        logger.error(f"Validation error creating service for client {client_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Invalid service data: {str(e)}")
     except Exception as e:
-        print(f"Error creating service: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Failed to create service")
+        logger.error(f"Error creating service for client {client_id}: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create service: {str(e)}")
 
 
 @app.post("/services/{service_id}/toggle")
