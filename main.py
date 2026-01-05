@@ -358,10 +358,23 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    """Login page - simple form for basic auth."""
-    # Always show the login page - never redirect from GET /login
-    # This prevents redirect loops. The POST /login route handles authentication and redirects.
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    """
+    Login page - always returns the login form.
+    
+    Step 1: Restore Basic Page Functionality
+    - No authentication checks
+    - No redirects
+    - Always returns login page HTML
+    """
+    try:
+        return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    except Exception as e:
+        logger.error(f"[LOGIN PAGE ERROR] Failed to render login page: {e}", exc_info=True)
+        # Return a simple error page if template fails
+        return HTMLResponse(
+            content="<h1>Login</h1><p>Login page temporarily unavailable. Please try again.</p>",
+            status_code=500
+        )
 
 
 @app.post("/login")
@@ -444,13 +457,16 @@ async def login(
             status_code=401
         )
     
+    # Step 2: Repair Login POST Logic
     # Set session and redirect
     try:
+        # Set the session
         set_user_session(request, user)
-        # Ensure session is marked as modified so it gets saved
-        # This is critical for the session cookie to be set before redirect
-        request.session.setdefault("_modified", True)
         logger.info(f"[LOGIN] Session set for user {user.id} ({user.email})")
+        
+        # Redirect to dashboard on success
+        # The session cookie will be set automatically by SessionMiddleware
+        return RedirectResponse(url="/dashboard", status_code=303)
     except ValueError as e:
         # Invalid user object
         error_context = {
@@ -505,10 +521,10 @@ async def login(
             status_code=500
         )
     
-    # Create redirect response - session will be saved automatically by middleware
+    # Step 2: Repair Login POST Logic - Redirect on success
+    # Session cookie will be set automatically by SessionMiddleware
     logger.info(f"[LOGIN] Redirecting user {user.id} to dashboard")
-    response = RedirectResponse(url="/dashboard", status_code=303)
-    return response
+    return RedirectResponse(url="/dashboard", status_code=303)
 
 
 @app.get("/logout")
@@ -1734,18 +1750,17 @@ async def dashboard(
     """
     Display 2025 Sales Pipeline Dashboard.
     
-    State transitions:
-    1. Get current user from session → redirect if not authenticated
-    2. Check permissions → redirect if denied
-    3. Load clients data → handle errors gracefully
-    4. Calculate statistics → handle errors gracefully
-    5. Render dashboard → always succeeds with safe defaults
+    Step 3: Fix Auth Detection
+    - Correctly read the auth token / session
+    - Only redirect to /login if the user is truly unauthenticated
     """
     from auth import get_current_user, require_permission
     
-    # Step 1: Authentication
+    # Step 3: Fix Auth Detection - Check authentication
     current_user = get_current_user(request)
     if not current_user:
+        # User is truly unauthenticated - redirect to login
+        logger.info("[DASHBOARD] User not authenticated, redirecting to login")
         return RedirectResponse(url="/login", status_code=303)
     
     # Step 2: Authorization

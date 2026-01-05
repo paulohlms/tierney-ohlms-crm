@@ -208,11 +208,9 @@ def set_user_session(request: Request, user: User) -> None:
         raise ValueError(f"User object missing id attribute. User type: {type(user)}, User ID: {user_id}")
     
     try:
+        # Set the user_id in the session
+        # SessionMiddleware will automatically save this and set the cookie
         request.session["user_id"] = user_id
-        # Force session to be saved by marking it as modified
-        # This ensures the cookie is set before redirect
-        if hasattr(request.session, '_modified'):
-            request.session._modified = True
         logger.info(f"[AUTH] Session set for user_id={user_id}, session keys: {list(request.session.keys())}")
     except AttributeError as e:
         error_context = {
