@@ -646,38 +646,79 @@ def get_timesheet_summary(
                 has_staff_member = False
                 staff_member = None
         
-        # Build base query with filters
-        base_query = db.query(Timesheet)
-        filters = []
-        
-        if client_id:
-            filters.append(Timesheet.client_id == client_id)
-        
-        # Only filter by staff_member if column exists
-        if staff_member and has_staff_member:
-            filters.append(Timesheet.staff_member == staff_member)
-        
-        if date_from:
-            filters.append(Timesheet.entry_date >= date_from)
-        
-        if date_to:
-            filters.append(Timesheet.entry_date <= date_to)
-        
-        # Apply filters to base query
-        if filters:
-            base_query = base_query.filter(*filters)
-        
-        # Calculate totals
-        total_hours_query = db.query(func.sum(Timesheet.hours))
-        billable_hours_query = db.query(func.sum(Timesheet.hours)).filter(Timesheet.billable == True)
-        
-        if filters:
-            total_hours_query = total_hours_query.filter(*filters)
-            billable_hours_query = billable_hours_query.filter(*filters)
-        
-        total_hours = total_hours_query.scalar() or 0.0
-        billable_hours = billable_hours_query.scalar() or 0.0
-        total_entries = base_query.count()
+        # CRITICAL FIX: If staff_member column is missing, use raw SQL to avoid ORM selecting it
+        if not has_staff_member:
+            # Use raw SQL queries to avoid ORM trying to select missing columns
+            from sqlalchemy import text
+            
+            # Build WHERE clause
+            where_clauses = []
+            params = {}
+            
+            if client_id:
+                where_clauses.append("client_id = :client_id")
+                params['client_id'] = client_id
+            
+            if date_from:
+                where_clauses.append("entry_date >= :date_from")
+                params['date_from'] = date_from
+            
+            if date_to:
+                where_clauses.append("entry_date <= :date_to")
+                params['date_to'] = date_to
+            
+            where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+            
+            # Calculate totals using raw SQL
+            total_hours_result = db.execute(
+                text(f"SELECT COALESCE(SUM(hours), 0) FROM timesheets WHERE {where_sql}"),
+                params
+            )
+            total_hours = float(total_hours_result.scalar() or 0.0)
+            
+            billable_hours_result = db.execute(
+                text(f"SELECT COALESCE(SUM(hours), 0) FROM timesheets WHERE {where_sql} AND billable = true"),
+                params
+            )
+            billable_hours = float(billable_hours_result.scalar() or 0.0)
+            
+            count_result = db.execute(
+                text(f"SELECT COUNT(*) FROM timesheets WHERE {where_sql}"),
+                params
+            )
+            total_entries = int(count_result.scalar() or 0)
+        else:
+            # Use ORM queries when all columns exist
+            base_query = db.query(Timesheet)
+            filters = []
+            
+            if client_id:
+                filters.append(Timesheet.client_id == client_id)
+            
+            if staff_member:
+                filters.append(Timesheet.staff_member == staff_member)
+            
+            if date_from:
+                filters.append(Timesheet.entry_date >= date_from)
+            
+            if date_to:
+                filters.append(Timesheet.entry_date <= date_to)
+            
+            # Apply filters to base query
+            if filters:
+                base_query = base_query.filter(*filters)
+            
+            # Calculate totals
+            total_hours_query = db.query(func.sum(Timesheet.hours))
+            billable_hours_query = db.query(func.sum(Timesheet.hours)).filter(Timesheet.billable == True)
+            
+            if filters:
+                total_hours_query = total_hours_query.filter(*filters)
+                billable_hours_query = billable_hours_query.filter(*filters)
+            
+            total_hours = float(total_hours_query.scalar() or 0.0)
+            billable_hours = float(billable_hours_query.scalar() or 0.0)
+            total_entries = base_query.count()
         
         return {
             "total_hours": float(total_hours),
