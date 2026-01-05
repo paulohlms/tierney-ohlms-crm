@@ -5,6 +5,7 @@ These functions encapsulate database operations and can be reused
 across different routes. Keeps business logic separate from routing.
 """
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, func, case
 from sqlalchemy.sql import desc, asc
 from typing import List, Optional, Tuple
@@ -26,102 +27,91 @@ def get_client(db: Session, client_id: int) -> Optional[Client]:
     return db.query(Client).filter(Client.id == client_id).first()
 
 
-def calculate_client_revenue(db: Session, client_id: int) -> float:
+async def calculate_client_revenue(db: AsyncSession, client_id: int) -> float:
     """
-    Calculate annual revenue for a client based on active services.
+    REBUILT: Non-blocking revenue calculation with timeout protection.
     
+    Calculate annual revenue for a client based on active services.
     Revenue = sum of (monthly_fee × multiplier) for all active services
     Multiplier: 12 for Monthly, 4 for Quarterly, 1 for Annual
     
-    Returns 0.0 if calculation fails (e.g., Service table issues, transaction errors).
+    Returns 0.0 if calculation fails or times out.
     This ensures graceful degradation when database queries fail.
     
-    CRITICAL: This function must not hang. Uses raw SQL with explicit timeout to avoid
-    ORM query issues that can cause indefinite blocking.
+    CRITICAL: This function runs the blocking query in a thread pool with timeout.
+    It never blocks the event loop and always returns within the timeout period.
     """
     import logging
-    from sqlalchemy.exc import SQLAlchemyError, OperationalError, TimeoutError
-    from database import SessionLocal, engine
-    from sqlalchemy import text
-    import signal
-    import threading
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from database import SessionLocal
     logger = logging.getLogger(__name__)
     
-    # CRITICAL: Use raw SQL with connection-level timeout to prevent indefinite blocking
-    # ORM queries can hang due to transaction locks, but raw SQL with timeout will fail fast
-    fresh_db = None
-    try:
-        logger.info(f"[REVENUE] Starting revenue calculation for client {client_id}")
-        logger.info(f"[REVENUE] Step 1: Creating fresh database connection...")
-        
-        # Create a fresh connection (not session) for raw SQL with timeout
-        # This completely bypasses ORM and transaction state issues
-        with engine.connect() as conn:
-            logger.info(f"[REVENUE] Step 2: Connection established, executing raw SQL query...")
+    def _blocking_query(client_id: int) -> float:
+        """Execute blocking database query in thread pool."""
+        db = None
+        try:
+            db = SessionLocal()
+            services = db.query(Service).filter(
+                Service.client_id == client_id,
+                Service.active == True
+            ).all()
             
-            try:
-                # Use raw SQL query with explicit timeout
-                # This avoids ORM query hanging issues
-                # PostgreSQL: statement_timeout is set per connection
-                # SQLite: timeout is handled by connection args
-                query = text("""
-                    SELECT id, service_type, billing_frequency, monthly_fee, active
-                    FROM services
-                    WHERE client_id = :client_id AND active = true
-                """)
-                
-                logger.info(f"[REVENUE] Step 3: Executing SQL query for client {client_id}...")
-                result = conn.execute(query, {"client_id": client_id})
-                services_data = result.fetchall()
-                
-                logger.info(f"[REVENUE] Step 4: Query completed - found {len(services_data)} active services for client {client_id}")
-                
-            except (SQLAlchemyError, OperationalError, TimeoutError) as query_error:
-                # Database error - return 0 immediately
-                error_msg = str(query_error)
-                logger.error(f"[REVENUE] Step 4 ERROR: Database query failed for client {client_id}: {error_msg}", exc_info=True)
-                
-                # Check if it's a column-related error
-                if 'column' in error_msg.lower() or 'duplicate' in error_msg.lower() or 'ambiguous' in error_msg.lower():
-                    logger.error(f"[REVENUE] Possible schema issue with services table - duplicate columns may exist")
-                
-                return 0.0
-            except Exception as query_error:
-                # Any other error - return 0 immediately
-                error_msg = str(query_error)
-                logger.error(f"[REVENUE] Step 4 ERROR: Unexpected error during query for client {client_id}: {error_msg}", exc_info=True)
-                return 0.0
-            
-            # Calculate revenue from services data
-            logger.info(f"[REVENUE] Step 5: Calculating revenue from {len(services_data)} services...")
             revenue = 0.0
-            for row in services_data:
+            for service in services:
                 try:
-                    # Row is a Row object - access by index or column name
-                    monthly_fee = row[3] if len(row) > 3 else None  # monthly_fee is 4th column (0-indexed)
-                    billing_frequency = row[2] if len(row) > 2 else None  # billing_frequency is 3rd column
-                    
-                    if monthly_fee:
-                        if billing_frequency == "Monthly":
-                            revenue += monthly_fee * 12
-                        elif billing_frequency == "Quarterly":
-                            revenue += monthly_fee * 4
-                        elif billing_frequency == "Annual":
-                            revenue += monthly_fee
+                    if service.monthly_fee:
+                        if service.billing_frequency == "Monthly":
+                            revenue += service.monthly_fee * 12
+                        elif service.billing_frequency == "Quarterly":
+                            revenue += service.monthly_fee * 4
+                        elif service.billing_frequency == "Annual":
+                            revenue += service.monthly_fee
                         else:
-                            # Default to monthly if frequency not set
-                            revenue += monthly_fee * 12
-                except Exception as e:
-                    service_id = row[0] if len(row) > 0 else "unknown"
-                    logger.warning(f"[REVENUE] Error calculating revenue for service {service_id}: {e}")
+                            revenue += service.monthly_fee * 12
+                except Exception:
                     continue
             
-            logger.info(f"[REVENUE] Step 6: Revenue calculation complete for client {client_id}: ${revenue:,.2f}")
             return revenue
+        except Exception as e:
+            logger.error(f"[REVENUE] Blocking query error for client {client_id}: {e}")
+            return 0.0
+        finally:
+            if db:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+    
+    try:
+        logger.info(f"[REVENUE] Starting non-blocking revenue calculation for client {client_id}")
         
+        # CRITICAL: Run blocking query in thread pool with timeout
+        # This prevents blocking the event loop
+        try:
+            logger.info(f"[REVENUE] Step 1: Executing query in thread pool with 2-second timeout...")
+            
+            # Use asyncio.to_thread (Python 3.9+) or run_in_executor
+            try:
+                revenue = await asyncio.wait_for(
+                    asyncio.to_thread(_blocking_query, client_id),
+                    timeout=2.0  # 2 second timeout
+                )
+                logger.info(f"[REVENUE] Step 2: Query completed - revenue: ${revenue:,.2f}")
+                return revenue
+            except asyncio.TimeoutError:
+                logger.error(f"[REVENUE] Query timeout for client {client_id} after 2 seconds - returning 0.0")
+                return 0.0
+            except Exception as e:
+                logger.error(f"[REVENUE] Query error for client {client_id}: {e}", exc_info=True)
+                return 0.0
+                
+        except Exception as e:
+            logger.error(f"[REVENUE] Outer error for client {client_id}: {e}", exc_info=True)
+            return 0.0
+            
     except Exception as e:
-        # Graceful degradation: return 0 if anything fails
-        logger.error(f"[REVENUE] Outer error calculating revenue for client {client_id}: {e}", exc_info=True)
+        logger.error(f"[REVENUE] Fatal error for client {client_id}: {e}", exc_info=True)
         return 0.0
 
 

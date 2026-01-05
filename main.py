@@ -38,7 +38,7 @@ from schemas import (
 )
 from crud import (
     get_client, get_clients, create_client, update_client, update_client_field, delete_client,
-    calculate_client_revenue,
+    calculate_client_revenue_async,
     create_contact, delete_contact,
     create_service, update_service, delete_service,
     create_task, update_task_status, delete_task,
@@ -739,7 +739,7 @@ async def prospects_list(
     prospects_with_data = []
     for prospect in prospects:
         try:
-            estimated_revenue = calculate_client_revenue(db, prospect.id)
+            estimated_revenue = await calculate_client_revenue_async(prospect.id)
             # Don't use default - show actual revenue (0 if no services)
             
             # Determine stage
@@ -1870,7 +1870,7 @@ async def dashboard(
                 
                 # Call revenue calculation - uses raw SQL to avoid ORM hanging issues
                 # If it fails or hangs, function returns 0.0 immediately
-                revenue = calculate_client_revenue(db, c.id)
+                revenue = await calculate_client_revenue_async(c.id)
                 
                 logger.info(f"[DASHBOARD] AFTER revenue calculation call for client {c.id} - revenue: ${revenue:,.2f}")
                 total_revenue += revenue
@@ -1938,7 +1938,7 @@ async def dashboard(
     for prospect in prospects:
         try:
             # Use safe revenue calculation - returns 0.0 on any error
-            estimated_revenue = calculate_client_revenue(db, prospect.id)
+            estimated_revenue = await calculate_client_revenue_async(prospect.id)
         except Exception as e:
             logger.warning(f"[DASHBOARD] Error calculating prospect revenue for {prospect.id}: {e}")
             estimated_revenue = 0.0
@@ -1974,7 +1974,7 @@ async def dashboard(
         try:
             logger.info(f"[DASHBOARD] Calculating revenue for won client {client.id}...")
             # Use safe revenue calculation - returns 0.0 on any error
-            actual_revenue = calculate_client_revenue(db, client.id)
+            actual_revenue = await calculate_client_revenue(db, client.id)
         except Exception as e:
             logger.error(f"[DASHBOARD] Error calculating revenue for won client {client.id}: {e}", exc_info=True)
             actual_revenue = 0.0
@@ -2007,7 +2007,7 @@ async def dashboard(
         try:
             logger.info(f"[DASHBOARD] Calculating value for lost client {client.id}...")
             # Use safe revenue calculation - returns 0.0 on any error
-            estimated_value = calculate_client_revenue(db, client.id)
+            estimated_value = await calculate_client_revenue_async(client.id)
         except Exception as e:
             logger.error(f"[DASHBOARD] Error calculating value for lost client {client.id}: {e}", exc_info=True)
             estimated_value = 0.0

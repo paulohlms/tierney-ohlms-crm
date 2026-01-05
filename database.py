@@ -3,6 +3,9 @@ Database connection and session management.
 
 Uses SQLAlchemy ORM for database operations.
 All database operations are managed through session contexts.
+
+NOTE: Kept synchronous for backward compatibility with existing code.
+Revenue calculation uses async wrapper to prevent blocking.
 """
 import os
 import logging
