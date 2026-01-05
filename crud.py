@@ -27,7 +27,7 @@ def get_client(db: Session, client_id: int) -> Optional[Client]:
     return db.query(Client).filter(Client.id == client_id).first()
 
 
-async def calculate_client_revenue(db: AsyncSession, client_id: int) -> float:
+async def calculate_client_revenue_async(client_id: int) -> float:
     """
     REBUILT: Non-blocking revenue calculation with timeout protection.
     

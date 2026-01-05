@@ -867,7 +867,7 @@ async def prospects_export(
     # Filter by stage and owner (same logic as list view)
     prospects_with_data = []
     for prospect in prospects:
-        estimated_revenue = calculate_client_revenue(db, prospect.id)
+        estimated_revenue = await calculate_client_revenue_async(prospect.id)
         if estimated_revenue == 0:
             estimated_revenue = 75000
         
