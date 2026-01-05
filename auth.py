@@ -213,7 +213,6 @@ def set_user_session(request: Request, user: User) -> None:
         # This ensures the cookie is set before redirect
         if hasattr(request.session, '_modified'):
             request.session._modified = True
-        logger = logging.getLogger(__name__)
         logger.info(f"[AUTH] Session set for user_id={user_id}, session keys: {list(request.session.keys())}")
     except AttributeError as e:
         error_context = {
