@@ -624,7 +624,7 @@ async def clients_list(
     clients_with_data = []
     for client in clients:
         try:
-            revenue = calculate_client_revenue(db, client.id)
+            revenue = await calculate_client_revenue_async(client.id)
         except Exception as e:
             logger.warning(f"Error calculating revenue for client {client.id}: {e}")
             revenue = 0.0
@@ -1974,7 +1974,7 @@ async def dashboard(
         try:
             logger.info(f"[DASHBOARD] Calculating revenue for won client {client.id}...")
             # Use safe revenue calculation - returns 0.0 on any error
-            actual_revenue = await calculate_client_revenue(db, client.id)
+            actual_revenue = await calculate_client_revenue_async(client.id)
         except Exception as e:
             logger.error(f"[DASHBOARD] Error calculating revenue for won client {client.id}: {e}", exc_info=True)
             actual_revenue = 0.0
