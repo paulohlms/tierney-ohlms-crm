@@ -1854,26 +1854,33 @@ async def dashboard(
     logger.info(f"[DASHBOARD] Found {total_active} active clients out of {total_clients} total")
     
     # Calculate total revenue (all active clients)
-    # CRITICAL: Add timeout protection - if revenue calculation hangs, skip it
+    # CRITICAL: Revenue calculation is optional - if it fails, use 0.0 and continue
+    # This ensures dashboard always loads even if revenue calculation has issues
     logger.info(f"[DASHBOARD] Calculating total revenue for {len(active_clients)} active clients...")
     total_revenue = 0.0
-    for i, c in enumerate(active_clients):
-        try:
-            logger.info(f"[DASHBOARD] Calculating revenue for client {c.id} ({c.legal_name})... [Client {i+1}/{len(active_clients)}]")
-            
-            # Call revenue calculation - if it hangs, the function will return 0.0
-            revenue = calculate_client_revenue(db, c.id)
-            total_revenue += revenue
-            
-            logger.info(f"[DASHBOARD] Client {c.id} revenue: ${revenue:,.2f}, running total: ${total_revenue:,.2f}")
-            
-        except Exception as e:
-            # Error calculating revenue - continue with 0 for this client
-            logger.error(f"[DASHBOARD] Exception calculating revenue for client {c.id}: {e}", exc_info=True)
-            # Don't let one client's revenue calculation block the entire dashboard
-            revenue = 0.0
-            total_revenue += revenue
-            logger.info(f"[DASHBOARD] Skipped client {c.id} revenue (error), continuing...")
+    
+    # Skip revenue calculation if there are no active clients (optimization)
+    if len(active_clients) == 0:
+        logger.info(f"[DASHBOARD] No active clients - skipping revenue calculation")
+    else:
+        for i, c in enumerate(active_clients):
+            try:
+                logger.info(f"[DASHBOARD] Calculating revenue for client {c.id} ({c.legal_name})... [Client {i+1}/{len(active_clients)}]")
+                
+                # Call revenue calculation - uses fresh session to avoid transaction locks
+                # If it fails or hangs, function returns 0.0 immediately
+                revenue = calculate_client_revenue(db, c.id)
+                total_revenue += revenue
+                
+                logger.info(f"[DASHBOARD] Client {c.id} revenue: ${revenue:,.2f}, running total: ${total_revenue:,.2f}")
+                
+            except Exception as e:
+                # Error calculating revenue - continue with 0 for this client
+                logger.error(f"[DASHBOARD] Exception calculating revenue for client {c.id}: {e}", exc_info=True)
+                # Don't let one client's revenue calculation block the entire dashboard
+                revenue = 0.0
+                total_revenue += revenue
+                logger.info(f"[DASHBOARD] Skipped client {c.id} revenue (error), continuing...")
     
     logger.info(f"[DASHBOARD] Total revenue calculation complete: ${total_revenue:,.2f}")
     
@@ -1953,12 +1960,14 @@ async def dashboard(
         })
     
     # Step 7: Calculate won revenue (with explicit error handling)
+    # CRITICAL: Use same safe revenue calculation - if it fails, use 0.0
     logger.info(f"[DASHBOARD] Calculating revenue for {len(won_clients)} won clients...")
     won_data = []
     total_won_revenue = 0.0
     for client in won_clients:
         try:
-            logger.debug(f"[DASHBOARD] Calculating revenue for won client {client.id}...")
+            logger.info(f"[DASHBOARD] Calculating revenue for won client {client.id}...")
+            # Use safe revenue calculation - returns 0.0 on any error
             actual_revenue = calculate_client_revenue(db, client.id)
         except Exception as e:
             logger.error(f"[DASHBOARD] Error calculating revenue for won client {client.id}: {e}", exc_info=True)
@@ -1984,12 +1993,14 @@ async def dashboard(
         })
     
     # Step 8: Calculate lost value (with explicit error handling)
+    # CRITICAL: Use same safe revenue calculation - if it fails, use 0.0
     logger.info(f"[DASHBOARD] Calculating value for {len(lost_clients)} lost clients...")
     lost_data = []
     total_lost_value = 0.0
     for client in lost_clients:
         try:
-            logger.debug(f"[DASHBOARD] Calculating value for lost client {client.id}...")
+            logger.info(f"[DASHBOARD] Calculating value for lost client {client.id}...")
+            # Use safe revenue calculation - returns 0.0 on any error
             estimated_value = calculate_client_revenue(db, client.id)
         except Exception as e:
             logger.error(f"[DASHBOARD] Error calculating value for lost client {client.id}: {e}", exc_info=True)
