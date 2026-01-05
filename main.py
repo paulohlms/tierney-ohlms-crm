@@ -2044,6 +2044,191 @@ async def dashboard(
 
 
 # ============================================================================
+# Dashboard API Endpoints (Async Revenue Loading)
+# ============================================================================
+
+async def calculate_and_cache_revenue(active_clients: list):
+    """
+    Background task to calculate and cache revenue for all active clients.
+    This runs asynchronously and doesn't block the dashboard request.
+    """
+    from database import SessionLocal
+    logger.info(f"[REVENUE CACHE] Starting background revenue calculation for {len(active_clients)} clients...")
+    
+    total_revenue = 0.0
+    db = None
+    
+    try:
+        db = SessionLocal()
+        
+        for client in active_clients:
+            try:
+                revenue = await calculate_client_revenue_async(client.id)
+                total_revenue += revenue
+            except Exception as e:
+                logger.error(f"[REVENUE CACHE] Error calculating revenue for client {client.id}: {e}")
+                continue
+        
+        # Cache the result
+        set_cache("dashboard_total_revenue", total_revenue, timedelta(minutes=10))
+        logger.info(f"[REVENUE CACHE] Cached total revenue: ${total_revenue:,.2f}")
+        
+    except Exception as e:
+        logger.error(f"[REVENUE CACHE] Error in background revenue calculation: {e}", exc_info=True)
+    finally:
+        if db:
+            db.close()
+
+
+@app.get("/api/dashboard/revenue")
+async def get_dashboard_revenue(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    API endpoint to fetch dashboard revenue data asynchronously.
+    Returns cached revenue if available, otherwise calculates and caches it.
+    """
+    from auth import get_current_user
+    
+    # Check authentication
+    current_user = get_current_user(request)
+    if not current_user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    
+    logger.info("[API] Revenue endpoint called - checking cache...")
+    
+    # Try cache first
+    revenue_cache_key = "dashboard_total_revenue"
+    cached_revenue = get_cache(revenue_cache_key)
+    
+    if cached_revenue is not None:
+        logger.info(f"[API] Returning cached revenue: ${cached_revenue:,.2f}")
+        return JSONResponse({
+            "total_revenue": cached_revenue,
+            "total_revenue_formatted": f"{cached_revenue:,.0f}",
+            "cached": True
+        })
+    
+    # No cache - calculate now
+    logger.info("[API] No cache - calculating revenue...")
+    
+    try:
+        # Get active clients
+        all_clients = db.query(Client).all()
+        active_clients = [c for c in all_clients if c.status == "Active"]
+        prospects = [c for c in all_clients if c.status == "Prospect"]
+        won_clients = [c for c in all_clients if c.status == "Active" and 
+                      (c.created_at and hasattr(c.created_at, 'year') and c.created_at.year == 2025)]
+        lost_clients = [c for c in all_clients if c.status == "Dead"]
+        
+        # Calculate revenues in parallel
+        client_ids = set()
+        for c in active_clients:
+            client_ids.add(c.id)
+        for p in prospects:
+            client_ids.add(p.id)
+        for w in won_clients:
+            client_ids.add(w.id)
+        for l in lost_clients:
+            client_ids.add(l.id)
+        
+        # Calculate all revenues concurrently
+        revenue_tasks = [calculate_client_revenue_async(cid) for cid in client_ids]
+        revenues = await asyncio.gather(*revenue_tasks, return_exceptions=True)
+        revenue_map = dict(zip(client_ids, revenues))
+        revenue_map = {k: (v if not isinstance(v, Exception) else 0.0) for k, v in revenue_map.items()}
+        
+        # Calculate totals
+        total_revenue = sum(revenue_map.get(c.id, 0.0) for c in active_clients)
+        total_prospect_revenue = sum(revenue_map.get(p.id, 0.0) for p in prospects)
+        total_won_revenue = sum(revenue_map.get(w.id, 0.0) for w in won_clients)
+        total_lost_value = sum(revenue_map.get(l.id, 0.0) for l in lost_clients)
+        
+        # Build response data
+        prospects_data = []
+        for prospect in prospects:
+            expected_close_date = None
+            try:
+                if prospect.next_follow_up_date:
+                    expected_close_date = prospect.next_follow_up_date.strftime('%Y-%m-%d') if hasattr(prospect.next_follow_up_date, 'strftime') else str(prospect.next_follow_up_date)
+                elif prospect.created_at:
+                    if hasattr(prospect.created_at, 'date'):
+                        expected_close_date = prospect.created_at.date().strftime('%Y-%m-%d')
+                    else:
+                        expected_close_date = str(prospect.created_at)
+            except Exception:
+                pass
+            
+            prospects_data.append({
+                "client_id": prospect.id,
+                "estimated_revenue": revenue_map.get(prospect.id, 0.0),
+                "expected_close_date": expected_close_date
+            })
+        
+        won_data = []
+        for client in won_clients:
+            close_date = None
+            try:
+                if client.created_at:
+                    if hasattr(client.created_at, 'date'):
+                        close_date = client.created_at.date().strftime('%Y-%m-%d')
+                    else:
+                        close_date = str(client.created_at)
+            except Exception:
+                pass
+            
+            won_data.append({
+                "client_id": client.id,
+                "actual_revenue": revenue_map.get(client.id, 0.0),
+                "close_date": close_date
+            })
+        
+        lost_data = []
+        for client in lost_clients:
+            lost_date = None
+            try:
+                if client.created_at:
+                    if hasattr(client.created_at, 'date'):
+                        lost_date = client.created_at.date().strftime('%Y-%m-%d')
+                    else:
+                        lost_date = str(client.created_at)
+            except Exception:
+                pass
+            
+            lost_data.append({
+                "client_id": client.id,
+                "estimated_value": revenue_map.get(client.id, 0.0),
+                "lost_date": lost_date
+            })
+        
+        # Cache the results
+        set_cache(revenue_cache_key, total_revenue, timedelta(minutes=10))
+        
+        logger.info(f"[API] Revenue calculated: total=${total_revenue:,.2f}")
+        
+        return JSONResponse({
+            "total_revenue": total_revenue,
+            "total_revenue_formatted": f"{total_revenue:,.0f}",
+            "total_prospect_revenue": total_prospect_revenue,
+            "total_won_revenue": total_won_revenue,
+            "total_lost_value": total_lost_value,
+            "prospects": prospects_data,
+            "won_deals": won_data,
+            "lost_deals": lost_data,
+            "cached": False
+        })
+        
+    except Exception as e:
+        logger.error(f"[API] Error calculating revenue: {e}", exc_info=True)
+        return JSONResponse({
+            "error": "Failed to calculate revenue",
+            "total_revenue": 0.0,
+            "total_revenue_formatted": "0"
+        }, status_code=500)
+
+
+# ============================================================================
 # Timesheet Routes
 # ============================================================================
 
