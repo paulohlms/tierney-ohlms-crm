@@ -50,11 +50,19 @@ def migrate_database_schema():
                 print("[MIGRATION] Clients table does not exist - will be created by Base.metadata.create_all")
                 clients_success = True  # Table will be created fresh
             
-            if users_success and clients_success:
+            # Migrate services table
+            services_success = False
+            if 'services' in inspector.get_table_names():
+                services_success = _migrate_services_table(conn, inspector)
+            else:
+                print("[MIGRATION] Services table does not exist - will be created by Base.metadata.create_all")
+                services_success = True  # Table will be created fresh
+            
+            if users_success and clients_success and services_success:
                 print("[MIGRATION] Migration completed successfully")
                 return True
             else:
-                print(f"[MIGRATION] Migration completed with errors (users: {users_success}, clients: {clients_success})")
+                print(f"[MIGRATION] Migration completed with errors (users: {users_success}, clients: {clients_success}, services: {services_success})")
                 return False
                 
     except Exception as e:
@@ -173,6 +181,80 @@ def _migrate_clients_table(conn, inspector) -> bool:
         return True
     except Exception as e:
         print(f"[MIGRATION ERROR] Error migrating clients table: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def _migrate_services_table(conn, inspector) -> bool:
+    """
+    Add missing columns to services table.
+    
+    Returns:
+        True if all required columns exist or were added, False otherwise
+    """
+    try:
+        columns = {col['name'] for col in inspector.get_columns('services')}
+        columns_to_add = []
+        
+        # Define required columns with their SQL definitions
+        # Based on the Service model in models.py
+        required_columns = {
+            'service_type': 'VARCHAR NOT NULL DEFAULT \'Other\'',  # Required field, add default for existing rows
+            'billing_frequency': 'VARCHAR',
+            'monthly_fee': 'DOUBLE PRECISION',
+            'active': 'BOOLEAN DEFAULT TRUE'
+        }
+        
+        for col_name, col_def in required_columns.items():
+            if col_name not in columns:
+                columns_to_add.append((col_name, col_def))
+        
+        # Add missing columns
+        for col_name, col_def in columns_to_add:
+            try:
+                # For NOT NULL columns, we need to add with a default first, then update existing rows
+                if 'NOT NULL' in col_def and 'DEFAULT' in col_def:
+                    # Extract the default value
+                    if 'DEFAULT' in col_def:
+                        # Add column with default
+                        conn.execute(text(f"ALTER TABLE services ADD COLUMN {col_name} {col_def}"))
+                        print(f"[MIGRATION] Added column 'services.{col_name}' with default value")
+                    else:
+                        # Add nullable first, update values, then make NOT NULL
+                        nullable_def = col_def.replace(' NOT NULL', '')
+                        conn.execute(text(f"ALTER TABLE services ADD COLUMN {col_name} {nullable_def}"))
+                        # Update existing rows with default value
+                        default_value = col_def.split("DEFAULT '")[1].split("'")[0] if "DEFAULT '" in col_def else "NULL"
+                        if default_value != "NULL":
+                            conn.execute(text(f"UPDATE services SET {col_name} = '{default_value}' WHERE {col_name} IS NULL"))
+                        # Make NOT NULL
+                        conn.execute(text(f"ALTER TABLE services ALTER COLUMN {col_name} SET NOT NULL"))
+                        print(f"[MIGRATION] Added column 'services.{col_name}' (NOT NULL)")
+                else:
+                    conn.execute(text(f"ALTER TABLE services ADD COLUMN {col_name} {col_def}"))
+                    print(f"[MIGRATION] Added column 'services.{col_name}'")
+            except Exception as e:
+                # Check if column was actually added (might have been added concurrently)
+                inspector = inspect(engine)
+                current_columns = {col['name'] for col in inspector.get_columns('services')}
+                if col_name in current_columns:
+                    print(f"[MIGRATION] Column 'services.{col_name}' already exists")
+                else:
+                    print(f"[MIGRATION ERROR] Could not add column 'services.{col_name}': {e}")
+                    return False
+        
+        # Verify all columns exist
+        inspector = inspect(engine)
+        final_columns = {col['name'] for col in inspector.get_columns('services')}
+        for col_name in required_columns.keys():
+            if col_name not in final_columns:
+                print(f"[MIGRATION ERROR] Column 'services.{col_name}' is missing after migration")
+                return False
+        
+        return True
+    except Exception as e:
+        print(f"[MIGRATION ERROR] Error migrating services table: {e}")
         import traceback
         traceback.print_exc()
         return False
