@@ -1443,7 +1443,7 @@ async def service_create(
     client_id: int,
     service_type: str = Form(...),
     billing_frequency: Optional[str] = Form(None),
-    monthly_fee: Optional[float] = Form(None),
+    monthly_fee: Optional[str] = Form(None),  # Accept as string to handle empty strings
     db: Session = Depends(get_db)
 ):
     """Create a new service for a client."""
@@ -1460,25 +1460,37 @@ async def service_create(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     
+    # Validate and convert monthly_fee
+    monthly_fee_value = None
+    if monthly_fee is not None and monthly_fee.strip():  # Check for non-empty string
+        try:
+            fee_float = float(monthly_fee.strip())
+            if fee_float < 0:
+                raise HTTPException(status_code=400, detail="Monthly fee cannot be negative")
+            monthly_fee_value = fee_float
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid monthly fee format: '{monthly_fee}'. Please enter a valid number.")
+    
+    # Validate service_type is not empty
+    if not service_type or not service_type.strip():
+        raise HTTPException(status_code=400, detail="Service type is required")
+    
+    # Validate billing_frequency if provided
+    if billing_frequency and billing_frequency.strip():
+        valid_frequencies = ["Monthly", "Quarterly", "Annual", "One-time"]
+        if billing_frequency not in valid_frequencies:
+            logger.warning(f"Invalid billing_frequency: {billing_frequency}, allowing anyway")
+    
     try:
-        # Convert monthly_fee to float if provided
-        monthly_fee_value = None
-        if monthly_fee is not None:
-            try:
-                monthly_fee_value = float(monthly_fee)
-            except (ValueError, TypeError):
-                logger.warning(f"Invalid monthly_fee value: {monthly_fee}, setting to None")
-                monthly_fee_value = None
-        
         service_data = ServiceCreate(
             client_id=client_id,
-            service_type=service_type,
-            billing_frequency=billing_frequency,
+            service_type=service_type.strip(),
+            billing_frequency=billing_frequency.strip() if billing_frequency and billing_frequency.strip() else None,
             monthly_fee=monthly_fee_value,
             active=True
         )
         created_service = create_service(db, service_data)
-        logger.info(f"Successfully created service {created_service.id} for client {client_id}")
+        logger.info(f"Successfully created service {created_service.id} for client {client_id}: {service_type}")
         return RedirectResponse(url=f"/clients/{client_id}", status_code=303)
     except SQLAlchemyError as e:
         logger.error(f"Database error creating service for client {client_id}: {e}", exc_info=True)
@@ -1487,6 +1499,8 @@ async def service_create(
     except ValueError as e:
         logger.error(f"Validation error creating service for client {client_id}: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=f"Invalid service data: {str(e)}")
+    except HTTPException:
+        raise  # Re-raise HTTPException (e.g., from validation above)
     except Exception as e:
         logger.error(f"Error creating service for client {client_id}: {e}", exc_info=True)
         db.rollback()
