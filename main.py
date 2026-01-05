@@ -222,65 +222,92 @@ def reset_admin_users():
 app = FastAPI(title="Tierney & Ohlms CRM")
 
 # Run migrations and bootstrap on startup
+# CRITICAL: Use background task to avoid blocking port binding
+# This ensures Uvicorn binds to the port immediately for Render's health check
 @app.on_event("startup")
 async def startup_event():
     """
-    Run database initialization, migrations, and bootstrap users on startup.
+    Fast startup that binds port immediately, then runs database init in background.
     
-    State transitions:
-    1. Create database tables → log result (won't crash if DB unavailable)
-    2. Run database migrations → log result
-    3. Reset admin users → ensure they exist
-    4. Log completion
-    
-    This function is designed to be resilient - if database is unavailable,
-    the app will still start but database operations will fail gracefully.
+    This is critical for Render deployment - the port must open within seconds.
+    Database operations run in a background task to avoid blocking the event loop.
     """
+    import asyncio
+    
     logger.info("=" * 70)
     logger.info("Starting CRM Application")
     logger.info("=" * 70)
+    logger.info("[STARTUP] Server binding to port... (database init will run in background)")
     
-    # Step 1: Create database tables (if they don't exist)
-    try:
-        logger.info("[STARTUP] Creating database tables...")
-        Base.metadata.create_all(bind=engine)
-        logger.info("[STARTUP] Database tables created/verified successfully")
-    except Exception as e:
-        logger.error(f"[STARTUP ERROR] Failed to create database tables: {e}", exc_info=True)
-        logger.warning("[STARTUP] Application will start but database operations may fail")
-        # Continue - app should still start
+    # Schedule database initialization as a background task
+    # This allows the server to bind to the port immediately
+    asyncio.create_task(initialize_database_background())
     
-    # Step 2: Run database migrations
-    try:
-        logger.info("[STARTUP] Running database migrations...")
-        migration_success = migrate_database_schema()
-        if migration_success:
-            logger.info("[STARTUP] Database migrations completed successfully")
-        else:
-            logger.warning("[STARTUP] Database migrations completed with errors - some columns may be missing")
-    except Exception as e:
-        logger.error(f"[STARTUP ERROR] Database migration failed: {e}", exc_info=True)
-        logger.warning("[STARTUP] Continuing without migrations - application will start")
-        # Continue - app should still start
-    
-    # Step 3: Reset/Create admin users
-    try:
-        logger.info("[STARTUP] Resetting admin users...")
-        result = reset_admin_users()
-        if result and result.get("status") == "success":
-            created = result.get("created", 0)
-            updated = result.get("updated", 0)
-            logger.info(f"[STARTUP] Admin users ready: {created} created, {updated} updated")
-        else:
-            logger.warning("[STARTUP] Admin user reset had issues - check logs")
-    except Exception as e:
-        logger.error(f"[STARTUP ERROR] Failed to reset admin users: {e}", exc_info=True)
-        logger.warning("[STARTUP] Continuing without admin users - login may not work")
-        # Continue - app should still start
-    
+    logger.info("[STARTUP] Application ready - port should be open now")
     logger.info("=" * 70)
-    logger.info("Startup complete! Application is ready.")
-    logger.info("=" * 70)
+
+
+async def initialize_database_background():
+    """
+    Run database initialization in background after server starts.
+    
+    This function runs asynchronously after the server has bound to the port,
+    allowing Render's health check to succeed immediately.
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    
+    # Give the server a moment to bind to the port
+    await asyncio.sleep(0.5)
+    
+    logger.info("[BACKGROUND] Starting database initialization...")
+    
+    # Run synchronous database operations in a thread pool to avoid blocking
+    loop = asyncio.get_event_loop()
+    executor = ThreadPoolExecutor(max_workers=1)
+    
+    try:
+        # Step 1: Create database tables (if they don't exist)
+        try:
+            logger.info("[BACKGROUND] Creating database tables...")
+            await loop.run_in_executor(executor, Base.metadata.create_all, engine)
+            logger.info("[BACKGROUND] Database tables created/verified successfully")
+        except Exception as e:
+            logger.error(f"[BACKGROUND ERROR] Failed to create database tables: {e}", exc_info=True)
+            logger.warning("[BACKGROUND] Application will continue but database operations may fail")
+        
+        # Step 2: Run database migrations
+        try:
+            logger.info("[BACKGROUND] Running database migrations...")
+            migration_success = await loop.run_in_executor(executor, migrate_database_schema)
+            if migration_success:
+                logger.info("[BACKGROUND] Database migrations completed successfully")
+            else:
+                logger.warning("[BACKGROUND] Database migrations completed with errors - some columns may be missing")
+        except Exception as e:
+            logger.error(f"[BACKGROUND ERROR] Database migration failed: {e}", exc_info=True)
+            logger.warning("[BACKGROUND] Continuing without migrations - application will work")
+        
+        # Step 3: Reset/Create admin users
+        try:
+            logger.info("[BACKGROUND] Resetting admin users...")
+            result = await loop.run_in_executor(executor, reset_admin_users)
+            if result and result.get("status") == "success":
+                created = result.get("created", 0)
+                updated = result.get("updated", 0)
+                logger.info(f"[BACKGROUND] Admin users ready: {created} created, {updated} updated")
+            else:
+                logger.warning("[BACKGROUND] Admin user reset had issues - check logs")
+        except Exception as e:
+            logger.error(f"[BACKGROUND ERROR] Failed to reset admin users: {e}", exc_info=True)
+            logger.warning("[BACKGROUND] Continuing without admin users - login may not work")
+        
+        logger.info("[BACKGROUND] Database initialization complete!")
+        
+    except Exception as e:
+        logger.error(f"[BACKGROUND ERROR] Unexpected error during database initialization: {e}", exc_info=True)
+    finally:
+        executor.shutdown(wait=False)
 
 # Add session middleware for authentication
 # Use environment variable if set, otherwise use default (change in production!)
