@@ -1770,46 +1770,62 @@ async def dashboard(
     logger.info(f"[DASHBOARD] User authenticated: {current_user.email} (ID: {current_user.id})")
     
     # Step 2: Authorization
+    logger.info("[DASHBOARD] Checking permissions...")
     permission_check = require_permission(current_user, "view_dashboard")
     if permission_check:
+        logger.warning("[DASHBOARD] Permission denied, redirecting to login")
         return permission_check
+    logger.info("[DASHBOARD] Permissions OK")
     
     # Step 3: Load clients data (with explicit error handling)
+    logger.info("[DASHBOARD] Loading clients from database...")
     try:
         all_clients = db.query(Client).all()
+        logger.info(f"[DASHBOARD] Loaded {len(all_clients)} clients")
     except Exception as e:
         # Database query failed - return empty dashboard with safe defaults
-        print(f"Error loading clients: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"[DASHBOARD] Error loading clients: {e}", exc_info=True)
         all_clients = []
     
     # Step 4: Calculate statistics (with explicit error handling for each operation)
+    logger.info("[DASHBOARD] Calculating statistics...")
     total_clients = len(all_clients)
     active_clients = [c for c in all_clients if c.status == "Active"]
     total_active = len(active_clients)
+    logger.info(f"[DASHBOARD] Found {total_active} active clients out of {total_clients} total")
     
     # Calculate total revenue (all active clients)
+    logger.info("[DASHBOARD] Calculating total revenue for active clients...")
     total_revenue = 0.0
-    for c in active_clients:
+    for i, c in enumerate(active_clients):
         try:
-            total_revenue += calculate_client_revenue(db, c.id)
+            revenue = calculate_client_revenue(db, c.id)
+            total_revenue += revenue
+            if i < 5:  # Log first 5 for debugging
+                logger.debug(f"[DASHBOARD] Client {c.id} revenue: {revenue}")
         except Exception as e:
             # Error calculating revenue - continue with 0 for this client
+            logger.warning(f"[DASHBOARD] Error calculating revenue for client {c.id}: {e}")
             pass
+    logger.info(f"[DASHBOARD] Total revenue calculated: {total_revenue}")
     
     # Calculate total hours (all timesheets)
+    logger.info("[DASHBOARD] Getting timesheet summary...")
     try:
         timesheet_summary_all = get_timesheet_summary(db)
         total_hours = timesheet_summary_all.get("total_hours", 0.0)
+        logger.info(f"[DASHBOARD] Total hours: {total_hours}")
     except Exception as e:
         # Error getting timesheet summary - use 0
+        logger.error(f"[DASHBOARD] Error getting timesheet summary: {e}", exc_info=True)
         total_hours = 0.0
     
     # Step 5: Filter clients by status
+    logger.info("[DASHBOARD] Filtering clients by status...")
     current_year = 2025
     prospects = [c for c in all_clients if c.status == "Prospect"]
     lost_clients = [c for c in all_clients if c.status == "Dead"]
+    logger.info(f"[DASHBOARD] Found {len(prospects)} prospects, {len(lost_clients)} lost clients")
     
     # Won deals - Active clients (with explicit error handling)
     won_clients = []
@@ -1837,6 +1853,7 @@ async def dashboard(
                 pass
     
     # Step 6: Calculate prospect revenue (with explicit error handling)
+    logger.info(f"[DASHBOARD] Calculating revenue for {len(prospects)} prospects...")
     prospects_data = []
     total_prospect_revenue = 0.0
     for prospect in prospects:
@@ -1868,6 +1885,7 @@ async def dashboard(
         })
     
     # Step 7: Calculate won revenue (with explicit error handling)
+    logger.info(f"[DASHBOARD] Calculating revenue for {len(won_clients)} won clients...")
     won_data = []
     total_won_revenue = 0.0
     for client in won_clients:
@@ -1896,6 +1914,7 @@ async def dashboard(
         })
     
     # Step 8: Calculate lost value (with explicit error handling)
+    logger.info(f"[DASHBOARD] Calculating value for {len(lost_clients)} lost clients...")
     lost_data = []
     total_lost_value = 0.0
     for client in lost_clients:
@@ -1922,14 +1941,16 @@ async def dashboard(
         reason = "Not specified"
         try:
             # Access notes relationship - may trigger lazy load
-            if client.notes:
+            # Use eager loading to avoid N+1 queries
+            if hasattr(client, 'notes') and client.notes:
                 notes_list = list(client.notes)  # Force evaluation
                 if notes_list:
-                    latest_note = sorted(notes_list, key=lambda n: n.created_at, reverse=True)[0]
+                    latest_note = sorted(notes_list, key=lambda n: n.created_at if n.created_at else datetime.min, reverse=True)[0]
                     if latest_note and "lost" in latest_note.content.lower():
                         reason = latest_note.content[:100]
-        except Exception:
+        except Exception as e:
             # Notes query failed - use default reason
+            logger.debug(f"[DASHBOARD] Error getting notes for client {client.id}: {e}")
             pass
         
         lost_data.append({
@@ -1940,29 +1961,42 @@ async def dashboard(
         })
     
     # Step 9: Render dashboard (always succeeds with safe defaults)
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "user": current_user,
-            "prospects": prospects_data,
-            "prospects_count": len(prospects),
-            "total_prospect_revenue": total_prospect_revenue,
-            "won_deals": won_data,
-            "won_count": len(won_clients),
-            "total_won_revenue": total_won_revenue,
-            "lost_deals": lost_data,
-            "lost_count": len(lost_clients),
-            "total_lost_value": total_lost_value,
-            "total_clients": total_clients,
-            "active_clients": total_active,
-            "total_prospects": len(prospects),
-            "total_revenue": total_revenue,
-            "total_revenue_formatted": f"{total_revenue:,.0f}",
-            "total_hours": total_hours,
-            "today": date.today()
-        }
-    )
+    logger.info("[DASHBOARD] Preparing template data...")
+    logger.info(f"[DASHBOARD] Template data: {len(prospects_data)} prospects, {len(won_data)} won deals, {len(lost_data)} lost deals")
+    
+    template_data = {
+        "request": request,
+        "user": current_user,
+        "prospects": prospects_data,
+        "prospects_count": len(prospects),
+        "total_prospect_revenue": total_prospect_revenue,
+        "won_deals": won_data,
+        "won_count": len(won_clients),
+        "total_won_revenue": total_won_revenue,
+        "lost_deals": lost_data,
+        "lost_count": len(lost_clients),
+        "total_lost_value": total_lost_value,
+        "total_clients": total_clients,
+        "active_clients": total_active,
+        "total_prospects": len(prospects),
+        "total_revenue": total_revenue,
+        "total_revenue_formatted": f"{total_revenue:,.0f}",
+        "total_hours": total_hours,
+        "today": date.today()
+    }
+    
+    logger.info("[DASHBOARD] Rendering dashboard template...")
+    try:
+        response = templates.TemplateResponse("dashboard.html", template_data)
+        logger.info("[DASHBOARD] Template rendered successfully, returning response")
+        return response
+    except Exception as e:
+        logger.error(f"[DASHBOARD] Error rendering template: {e}", exc_info=True)
+        # Return a simple error page if template fails
+        return HTMLResponse(
+            content=f"<h1>Dashboard Error</h1><p>Error loading dashboard: {str(e)}</p><p><a href='/login'>Return to Login</a></p>",
+            status_code=500
+        )
 
 
 # ============================================================================
