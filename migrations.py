@@ -69,7 +69,12 @@ def migrate_database_schema():
             # Migrate timesheets table
             timesheets_success = False
             if 'timesheets' in inspector.get_table_names():
+                print("[MIGRATION] Migrating timesheets table...")
                 timesheets_success = _migrate_timesheets_table(conn, inspector)
+                if timesheets_success:
+                    print("[MIGRATION] Timesheets table migration completed successfully")
+                else:
+                    print("[MIGRATION ERROR] Timesheets table migration failed")
             else:
                 print("[MIGRATION] Timesheets table does not exist - will be created by Base.metadata.create_all")
                 timesheets_success = True  # Table will be created fresh
@@ -405,7 +410,9 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
             try:
                 # PostgreSQL allows adding NOT NULL columns with DEFAULT in one statement
                 # This automatically populates existing rows with the default value
+                # CRITICAL: Use execute() with commit to ensure the change is persisted
                 conn.execute(text(f"ALTER TABLE timesheets ADD COLUMN {col_name} {col_def}"))
+                conn.commit()  # Explicit commit for DDL
                 print(f"[MIGRATION] Added column 'timesheets.{col_name}'")
                 
                 # Verify the column was actually added
@@ -421,6 +428,7 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
                     print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists (detected via error)")
                 else:
                     print(f"[MIGRATION ERROR] Could not add column 'timesheets.{col_name}': {e}")
+                    # Note: rollback is handled by the context manager (engine.begin())
                     return False
         
         # Final verification: ensure all required columns exist

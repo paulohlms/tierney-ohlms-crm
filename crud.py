@@ -601,12 +601,51 @@ def get_timesheet_summary(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None
 ) -> dict:
-    """Get summary statistics for timesheets."""
+    """
+    Get summary statistics for timesheets.
+    
+    DEFENSIVE: Handles missing columns gracefully to prevent breaking dashboard/client/prospect pages.
+    Returns safe defaults if schema is incomplete.
+    """
     import logging
-    from sqlalchemy.exc import SQLAlchemyError
+    from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
+    from psycopg.errors import UndefinedColumn
     logger = logging.getLogger(__name__)
     
+    # Safe default return value
+    safe_default = {
+        "total_hours": 0.0,
+        "billable_hours": 0.0,
+        "non_billable_hours": 0.0,
+        "total_entries": 0
+    }
+    
     try:
+        # Check if staff_member column exists before using it
+        has_staff_member = True
+        if staff_member:
+            try:
+                from sqlalchemy import text
+                result = db.execute(text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'timesheets' AND column_name = 'staff_member'
+                """))
+                has_staff_member = result.fetchone() is not None
+                if not has_staff_member:
+                    logger.warning(
+                        f"[TIMESHEET] staff_member column missing - ignoring staff_member filter. "
+                        f"Migration may not have completed."
+                    )
+                    staff_member = None  # Skip this filter
+            except Exception as schema_check_error:
+                logger.warning(
+                    f"[TIMESHEET] Could not check for staff_member column: {schema_check_error}. "
+                    f"Proceeding without staff_member filter."
+                )
+                has_staff_member = False
+                staff_member = None
+        
         # Build base query with filters
         base_query = db.query(Timesheet)
         filters = []
@@ -614,7 +653,8 @@ def get_timesheet_summary(
         if client_id:
             filters.append(Timesheet.client_id == client_id)
         
-        if staff_member:
+        # Only filter by staff_member if column exists
+        if staff_member and has_staff_member:
             filters.append(Timesheet.staff_member == staff_member)
         
         if date_from:
@@ -645,30 +685,29 @@ def get_timesheet_summary(
             "non_billable_hours": float(total_hours - billable_hours),
             "total_entries": total_entries
         }
-    except SQLAlchemyError as e:
-        logger.error(f"Database error in get_timesheet_summary: {e}", exc_info=True)
+        
+    except (ProgrammingError, UndefinedColumn) as e:
+        # Schema error - column doesn't exist
+        error_msg = str(e)
+        if 'staff_member' in error_msg or 'UndefinedColumn' in error_msg:
+            logger.error(
+                f"[TIMESHEET] Schema error: timesheets table missing required column. "
+                f"Error: {error_msg}. "
+                f"This indicates a migration issue. Returning safe defaults."
+            )
+        else:
+            logger.error(f"[TIMESHEET] Schema error in get_timesheet_summary: {e}", exc_info=True)
         db.rollback()
-        return {
-            "total_hours": 0.0,
-            "billable_hours": 0.0,
-            "non_billable_hours": 0.0,
-            "total_entries": 0
-        }
-    except Exception as e:
-        logger.error(f"Unexpected error in get_timesheet_summary: {e}", exc_info=True)
-        return {
-            "total_hours": 0.0,
-            "billable_hours": 0.0,
-            "non_billable_hours": 0.0,
-            "total_entries": 0
-        }
+        return safe_default
+        
     except SQLAlchemyError as e:
-        logger.error(f"Database error in get_timesheet_summary: {e}", exc_info=True)
+        logger.error(f"[TIMESHEET] Database error in get_timesheet_summary: {e}", exc_info=True)
         db.rollback()
-        return {"total_hours": 0.0, "billable_hours": 0.0, "non_billable_hours": 0.0, "total_entries": 0}
+        return safe_default
+        
     except Exception as e:
-        logger.error(f"Unexpected error in get_timesheet_summary: {e}", exc_info=True)
-        return {"total_hours": 0.0, "billable_hours": 0.0, "non_billable_hours": 0.0, "total_entries": 0}
+        logger.error(f"[TIMESHEET] Unexpected error in get_timesheet_summary: {e}", exc_info=True)
+        return safe_default
 
 
 # User CRUD
