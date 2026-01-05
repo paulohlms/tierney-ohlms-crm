@@ -1818,18 +1818,20 @@ async def dashboard(
     logger.info(f"[DASHBOARD] Found {total_active} active clients out of {total_clients} total")
     
     # Calculate total revenue (all active clients)
-    logger.info("[DASHBOARD] Calculating total revenue for active clients...")
+    logger.info(f"[DASHBOARD] Calculating total revenue for {len(active_clients)} active clients...")
     total_revenue = 0.0
     for i, c in enumerate(active_clients):
         try:
+            logger.info(f"[DASHBOARD] Calculating revenue for client {c.id} ({c.legal_name})...")
             revenue = calculate_client_revenue(db, c.id)
             total_revenue += revenue
-            if i < 5:  # Log first 5 for debugging
-                logger.debug(f"[DASHBOARD] Client {c.id} revenue: {revenue}")
+            logger.info(f"[DASHBOARD] Client {c.id} revenue: {revenue}, running total: {total_revenue}")
         except Exception as e:
             # Error calculating revenue - continue with 0 for this client
-            logger.warning(f"[DASHBOARD] Error calculating revenue for client {c.id}: {e}")
-            pass
+            logger.error(f"[DASHBOARD] Error calculating revenue for client {c.id}: {e}", exc_info=True)
+            # Don't let one client's revenue calculation block the entire dashboard
+            revenue = 0.0
+            total_revenue += revenue
     logger.info(f"[DASHBOARD] Total revenue calculated: {total_revenue}")
     
     # Calculate total hours (all timesheets)
@@ -1913,8 +1915,10 @@ async def dashboard(
     total_won_revenue = 0.0
     for client in won_clients:
         try:
+            logger.debug(f"[DASHBOARD] Calculating revenue for won client {client.id}...")
             actual_revenue = calculate_client_revenue(db, client.id)
         except Exception as e:
+            logger.error(f"[DASHBOARD] Error calculating revenue for won client {client.id}: {e}", exc_info=True)
             actual_revenue = 0.0
         
         total_won_revenue += actual_revenue
@@ -1942,8 +1946,10 @@ async def dashboard(
     total_lost_value = 0.0
     for client in lost_clients:
         try:
+            logger.debug(f"[DASHBOARD] Calculating value for lost client {client.id}...")
             estimated_value = calculate_client_revenue(db, client.id)
-        except Exception:
+        except Exception as e:
+            logger.error(f"[DASHBOARD] Error calculating value for lost client {client.id}: {e}", exc_info=True)
             estimated_value = 0.0
         
         # Don't use default - show actual value (0 if no services)

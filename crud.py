@@ -40,10 +40,19 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
     logger = logging.getLogger(__name__)
     
     try:
-        services = db.query(Service).filter(
-            Service.client_id == client_id,
-            Service.active == True
-        ).all()
+        logger.debug(f"[REVENUE] Calculating revenue for client {client_id}")
+        
+        # Query services - this might hang if table has schema issues
+        try:
+            services = db.query(Service).filter(
+                Service.client_id == client_id,
+                Service.active == True
+            ).all()
+            logger.debug(f"[REVENUE] Found {len(services)} active services for client {client_id}")
+        except Exception as query_error:
+            # If query fails (e.g., duplicate columns, schema mismatch), log and return 0
+            logger.error(f"[REVENUE] Database query failed for client {client_id}: {query_error}", exc_info=True)
+            return 0.0
         
         revenue = 0.0
         for service in services:
@@ -59,13 +68,14 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
                         # Default to monthly if frequency not set
                         revenue += service.monthly_fee * 12
             except Exception as e:
-                logger.warning(f"Error calculating revenue for service {service.id}: {e}")
+                logger.warning(f"[REVENUE] Error calculating revenue for service {service.id}: {e}")
                 continue
         
+        logger.debug(f"[REVENUE] Total revenue for client {client_id}: {revenue}")
         return revenue
     except Exception as e:
         # Graceful degradation: return 0 if query fails
-        logger.warning(f"Error calculating revenue for client {client_id}: {e}")
+        logger.error(f"[REVENUE] Error calculating revenue for client {client_id}: {e}", exc_info=True)
         return 0.0
 
 
