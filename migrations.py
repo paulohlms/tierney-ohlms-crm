@@ -213,27 +213,10 @@ def _migrate_services_table(conn, inspector) -> bool:
         # Add missing columns
         for col_name, col_def in columns_to_add:
             try:
-                # For NOT NULL columns, we need to add with a default first, then update existing rows
-                if 'NOT NULL' in col_def and 'DEFAULT' in col_def:
-                    # Extract the default value
-                    if 'DEFAULT' in col_def:
-                        # Add column with default
-                        conn.execute(text(f"ALTER TABLE services ADD COLUMN {col_name} {col_def}"))
-                        print(f"[MIGRATION] Added column 'services.{col_name}' with default value")
-                    else:
-                        # Add nullable first, update values, then make NOT NULL
-                        nullable_def = col_def.replace(' NOT NULL', '')
-                        conn.execute(text(f"ALTER TABLE services ADD COLUMN {col_name} {nullable_def}"))
-                        # Update existing rows with default value
-                        default_value = col_def.split("DEFAULT '")[1].split("'")[0] if "DEFAULT '" in col_def else "NULL"
-                        if default_value != "NULL":
-                            conn.execute(text(f"UPDATE services SET {col_name} = '{default_value}' WHERE {col_name} IS NULL"))
-                        # Make NOT NULL
-                        conn.execute(text(f"ALTER TABLE services ALTER COLUMN {col_name} SET NOT NULL"))
-                        print(f"[MIGRATION] Added column 'services.{col_name}' (NOT NULL)")
-                else:
-                    conn.execute(text(f"ALTER TABLE services ADD COLUMN {col_name} {col_def}"))
-                    print(f"[MIGRATION] Added column 'services.{col_name}'")
+                # PostgreSQL allows adding NOT NULL columns with DEFAULT in one statement
+                # This automatically populates existing rows with the default value
+                conn.execute(text(f"ALTER TABLE services ADD COLUMN {col_name} {col_def}"))
+                print(f"[MIGRATION] Added column 'services.{col_name}'")
             except Exception as e:
                 # Check if column was actually added (might have been added concurrently)
                 inspector = inspect(engine)
