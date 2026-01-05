@@ -485,9 +485,19 @@ async def login(
         logger.info(f"[LOGIN] Redirecting user {user.id} to dashboard")
         logger.info(f"[LOGIN] Session state before redirect - user_id: {request.session.get('user_id')}, keys: {list(request.session.keys())}")
         
-        # Create redirect response - session will be saved by middleware
+        # Create redirect response
+        # SessionMiddleware will automatically:
+        # 1. Save session data
+        # 2. Set session cookie in response headers
+        # 3. Include cookie in redirect response
         response = RedirectResponse(url="/dashboard", status_code=303)
-        logger.info(f"[LOGIN] Redirect response created")
+        
+        # Log cookie information for debugging
+        # Check if we're behind a proxy (HTTPS)
+        is_https = request.url.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https"
+        logger.info(f"[LOGIN] Redirect created - HTTPS: {is_https}, URL scheme: {request.url.scheme}")
+        logger.info(f"[LOGIN] X-Forwarded-Proto: {request.headers.get('X-Forwarded-Proto', 'not set')}")
+        
         return response
     except ValueError as e:
         # Invalid user object
