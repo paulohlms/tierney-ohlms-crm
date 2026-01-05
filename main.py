@@ -1785,7 +1785,30 @@ async def dashboard(
     except Exception as e:
         # Database query failed - return empty dashboard with safe defaults
         logger.error(f"[DASHBOARD] Error loading clients: {e}", exc_info=True)
-        all_clients = []
+        # Return empty dashboard immediately if query fails
+        return templates.TemplateResponse(
+            "dashboard.html",
+            {
+                "request": request,
+                "user": current_user,
+                "prospects": [],
+                "prospects_count": 0,
+                "total_prospect_revenue": 0.0,
+                "won_deals": [],
+                "won_count": 0,
+                "total_won_revenue": 0.0,
+                "lost_deals": [],
+                "lost_count": 0,
+                "total_lost_value": 0.0,
+                "total_clients": 0,
+                "active_clients": 0,
+                "total_prospects": 0,
+                "total_revenue": 0.0,
+                "total_revenue_formatted": "0",
+                "total_hours": 0.0,
+                "today": date.today()
+            }
+        )
     
     # Step 4: Calculate statistics (with explicit error handling for each operation)
     logger.info("[DASHBOARD] Calculating statistics...")
