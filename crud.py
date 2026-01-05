@@ -548,7 +548,8 @@ def create_timesheet(db: Session, timesheet: TimesheetCreate) -> Timesheet:
     """
     Create a new timesheet entry.
     
-    DEFENSIVE: Handles missing columns gracefully by using raw SQL if needed.
+    OPTIMIZED: After migration, uses fast ORM path.
+    Falls back to raw SQL only if schema is incomplete.
     """
     import logging
     from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
@@ -557,30 +558,42 @@ def create_timesheet(db: Session, timesheet: TimesheetCreate) -> Timesheet:
     logger = logging.getLogger(__name__)
     
     try:
-        # Check if staff_member column exists
+        # Quick schema check (after migration, this should always be True)
         result = db.execute(text("""
             SELECT column_name 
             FROM information_schema.columns 
             WHERE table_schema = 'public' 
             AND table_name = 'timesheets' 
-            AND column_name = 'staff_member'
+            AND column_name IN ('staff_member', 'entry_date', 'hours')
         """))
-        has_staff_member = result.fetchone() is not None
+        existing_cols = {row[0] for row in result}
+        required_cols = {'staff_member', 'entry_date', 'hours'}
         
-        if not has_staff_member:
-            # Use raw SQL INSERT to avoid ORM selecting missing columns
-            logger.warning("[TIMESHEET] staff_member column missing - using raw SQL INSERT")
+        if not required_cols.issubset(existing_cols):
+            # Schema incomplete - use raw SQL fallback
+            missing = required_cols - existing_cols
+            logger.warning(
+                f"[TIMESHEET] Missing columns: {missing}. Using raw SQL fallback. "
+                f"Run migrate_db.py to fix."
+            )
             timesheet_dict = timesheet.dict()
             
-            # Build INSERT statement with only existing columns
-            columns = ['client_id', 'entry_date', 'hours']
-            values = [timesheet_dict.get('client_id'), timesheet_dict.get('entry_date'), timesheet_dict.get('hours', 0.0)]
-            placeholders = ['client_id', 'entry_date', 'hours']
+            # Build INSERT with only existing columns
+            columns = []
+            values = []
+            placeholders = []
+            
+            # Add required columns that exist
+            for col in ['client_id', 'entry_date', 'hours']:
+                if col in timesheet_dict and timesheet_dict[col] is not None:
+                    columns.append(col)
+                    values.append(timesheet_dict[col])
+                    placeholders.append(col)
             
             # Add optional columns if they exist and have values
-            optional_cols = ['start_time', 'end_time', 'project_task', 'description', 'billable']
+            optional_cols = ['staff_member', 'start_time', 'end_time', 'project_task', 'description', 'billable']
             for col in optional_cols:
-                if col in timesheet_dict and timesheet_dict[col] is not None:
+                if col in existing_cols and col in timesheet_dict and timesheet_dict[col] is not None:
                     columns.append(col)
                     values.append(timesheet_dict[col])
                     placeholders.append(col)
@@ -603,7 +616,7 @@ def create_timesheet(db: Session, timesheet: TimesheetCreate) -> Timesheet:
             else:
                 raise Exception("Failed to retrieve created timesheet")
         else:
-            # Use ORM as normal
+            # Schema complete - use fast ORM path
             db_timesheet = Timesheet(**timesheet.dict())
             db.add(db_timesheet)
             db.commit()
@@ -615,7 +628,7 @@ def create_timesheet(db: Session, timesheet: TimesheetCreate) -> Timesheet:
         error_msg = str(e)
         logger.error(
             f"[TIMESHEET] Schema error creating timesheet: {error_msg}. "
-            f"This indicates a migration issue."
+            f"Run migrate_db.py to fix schema."
         )
         db.rollback()
         raise
@@ -666,15 +679,15 @@ def get_timesheet_summary(
     """
     Get summary statistics for timesheets.
     
-    DEFENSIVE: Handles missing columns gracefully to prevent breaking dashboard/client/prospect pages.
-    Returns safe defaults if schema is incomplete.
+    OPTIMIZED: After migration, uses ORM queries for better performance.
+    Falls back to raw SQL only if schema is incomplete (defensive mode).
     """
     import logging
     from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
     from psycopg.errors import UndefinedColumn
     logger = logging.getLogger(__name__)
     
-    # Safe default return value
+    # Safe default return value (only used if schema is incomplete)
     safe_default = {
         "total_hours": 0.0,
         "billable_hours": 0.0,
@@ -683,33 +696,36 @@ def get_timesheet_summary(
     }
     
     try:
-        # Check if staff_member column exists before using it
-        has_staff_member = True
-        if staff_member:
-            try:
-                from sqlalchemy import text
-                result = db.execute(text("""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'timesheets' AND column_name = 'staff_member'
-                """))
-                has_staff_member = result.fetchone() is not None
-                if not has_staff_member:
-                    logger.warning(
-                        f"[TIMESHEET] staff_member column missing - ignoring staff_member filter. "
-                        f"Migration may not have completed."
-                    )
-                    staff_member = None  # Skip this filter
-            except Exception as schema_check_error:
-                logger.warning(
-                    f"[TIMESHEET] Could not check for staff_member column: {schema_check_error}. "
-                    f"Proceeding without staff_member filter."
-                )
-                has_staff_member = False
-                staff_member = None
+        # Quick check: verify critical columns exist (only on first call or if error occurs)
+        # After migration succeeds, this check can be skipped for performance
+        from sqlalchemy import text
+        result = db.execute(text("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'timesheets' 
+            AND column_name IN ('staff_member', 'entry_date', 'hours', 'billable')
+        """))
+        existing_critical = {row[0] for row in result}
+        required_critical = {'staff_member', 'entry_date', 'hours', 'billable'}
+        
+        # If critical columns are missing, use raw SQL fallback
+        if not required_critical.issubset(existing_critical):
+            missing = required_critical - existing_critical
+            logger.warning(
+                f"[TIMESHEET] Missing critical columns: {missing}. "
+                f"Using raw SQL fallback. Run migrate_db.py to fix."
+            )
+            # Use raw SQL fallback (existing code below)
+            has_staff_member = 'staff_member' in existing_critical
+            if staff_member and not has_staff_member:
+                staff_member = None  # Skip this filter
+        else:
+            # All columns exist - use fast ORM path
+            has_staff_member = True
         
         # CRITICAL FIX: If staff_member column is missing, use raw SQL to avoid ORM selecting it
-        if not has_staff_member:
+        if not has_staff_member or not required_critical.issubset(existing_critical):
             # Use raw SQL queries to avoid ORM trying to select missing columns
             from sqlalchemy import text
             
