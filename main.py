@@ -5,7 +5,8 @@ This is a server-rendered application using Jinja2 templates.
 All routes return HTML pages, not JSON APIs.
 """
 from fastapi import FastAPI, Depends, Request, Form, HTTPException, Query, BackgroundTasks
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
+import asyncio
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -1796,46 +1797,25 @@ async def dashboard(
     db: Session = Depends(get_db)
 ):
     """
-    Display 2025 Sales Pipeline Dashboard.
-    
-    Step 3: Fix Auth Detection
-    - Correctly read the auth token / session
-    - Only redirect to /login if the user is truly unauthenticated
+    PERFORMANCE FIX: Fast dashboard that returns immediately.
+    Revenue data loads asynchronously via /api/dashboard/revenue endpoint.
     """
     from auth import get_current_user, require_permission
     
-    # Step 3: Fix Auth Detection - Check authentication
-    logger.info("[DASHBOARD] Dashboard route called, checking authentication...")
+    route_start = time.perf_counter()
+    logger.info("[DASHBOARD] Fast dashboard route called...")
     
-    # Debug session and cookie state
-    has_session = hasattr(request, 'session')
-    session_keys = list(request.session.keys()) if has_session else []
-    logger.info(f"[DASHBOARD] Session exists: {has_session}, Session keys: {session_keys}")
-    
-    # Check for session cookie in request headers
-    cookie_header = request.headers.get("Cookie", "")
-    has_session_cookie = "session=" in cookie_header.lower() or "sessionid=" in cookie_header.lower()
-    logger.info(f"[DASHBOARD] Cookie header present: {bool(cookie_header)}, Session cookie detected: {has_session_cookie}")
-    
+    # Fast authentication check
     current_user = get_current_user(request)
     if not current_user:
-        # User is truly unauthenticated - redirect to login
-        logger.warning("[DASHBOARD] User not authenticated, redirecting to login")
-        logger.warning(f"[DASHBOARD] Session state: exists={has_session}, keys={session_keys}, cookie_present={has_session_cookie}")
         return RedirectResponse(url="/login", status_code=303)
     
-    logger.info(f"[DASHBOARD] User authenticated: {current_user.email} (ID: {current_user.id})")
-    
-    # Step 2: Authorization
-    logger.info("[DASHBOARD] Checking permissions...")
     permission_check = require_permission(current_user, "view_dashboard")
     if permission_check:
-        logger.warning("[DASHBOARD] Permission denied, redirecting to login")
         return permission_check
-    logger.info("[DASHBOARD] Permissions OK")
     
-    # Step 3: Load clients data (with explicit error handling)
-    logger.info("[DASHBOARD] Loading clients from database...")
+    # Fast path: Load only essential data for immediate render
+    logger.info("[DASHBOARD] Loading clients from database (fast path)...")
     try:
         all_clients = db.query(Client).all()
         logger.info(f"[DASHBOARD] Loaded {len(all_clients)} clients")
@@ -1874,39 +1854,21 @@ async def dashboard(
     total_active = len(active_clients)
     logger.info(f"[DASHBOARD] Found {total_active} active clients out of {total_clients} total")
     
-    # Calculate total revenue (all active clients)
-    # CRITICAL: Revenue calculation is optional - if it fails, use 0.0 and continue
-    # This ensures dashboard always loads even if revenue calculation has issues
-    logger.info(f"[DASHBOARD] Calculating total revenue for {len(active_clients)} active clients...")
+    # PERFORMANCE FIX: Revenue calculation moved to background/API endpoint
+    # Dashboard returns immediately with cached or placeholder revenue
+    logger.info(f"[DASHBOARD] Fast path - skipping revenue calculation (loads via API)")
+    
+    # Use placeholder revenue - will be updated via API call
     total_revenue = 0.0
+    total_prospect_revenue = 0.0
+    total_won_revenue = 0.0
+    total_lost_value = 0.0
     
-    # Skip revenue calculation if there are no active clients (optimization)
-    if len(active_clients) == 0:
-        logger.info(f"[DASHBOARD] No active clients - skipping revenue calculation")
-    else:
-        for i, c in enumerate(active_clients):
-            try:
-                logger.info(f"[DASHBOARD] Calculating revenue for client {c.id} ({c.legal_name})... [Client {i+1}/{len(active_clients)}]")
-                logger.info(f"[DASHBOARD] BEFORE revenue calculation call for client {c.id}")
-                
-                # Call revenue calculation - uses raw SQL to avoid ORM hanging issues
-                # If it fails or hangs, function returns 0.0 immediately
-                revenue = await calculate_client_revenue_async(c.id)
-                
-                logger.info(f"[DASHBOARD] AFTER revenue calculation call for client {c.id} - revenue: ${revenue:,.2f}")
-                total_revenue += revenue
-                
-                logger.info(f"[DASHBOARD] Client {c.id} revenue: ${revenue:,.2f}, running total: ${total_revenue:,.2f}")
-                
-            except Exception as e:
-                # Error calculating revenue - continue with 0 for this client
-                logger.error(f"[DASHBOARD] Exception calculating revenue for client {c.id}: {e}", exc_info=True)
-                # Don't let one client's revenue calculation block the entire dashboard
-                revenue = 0.0
-                total_revenue += revenue
-                logger.info(f"[DASHBOARD] Skipped client {c.id} revenue (error), continuing...")
-    
-    logger.info(f"[DASHBOARD] Total revenue calculation complete: ${total_revenue:,.2f}")
+    # Schedule background task to pre-calculate revenue (non-blocking)
+    try:
+        background_tasks.add_task(calculate_and_cache_revenue, active_clients)
+    except Exception as e:
+        logger.debug(f"[DASHBOARD] Could not schedule background revenue calculation: {e}")
     
     # Calculate total hours (all timesheets)
     logger.info("[DASHBOARD] Getting timesheet summary...")
@@ -1951,22 +1913,11 @@ async def dashboard(
                 # Service query failed - skip this client
                 pass
     
-    # Step 6: Calculate prospect revenue (with explicit error handling)
-    # CRITICAL: Use same safe revenue calculation - if it fails, use 0.0
-    logger.info(f"[DASHBOARD] Calculating revenue for {len(prospects)} prospects...")
+    # PERFORMANCE FIX: Prospect revenue loaded asynchronously
+    logger.info(f"[DASHBOARD] Preparing prospect data (revenue will load via API)...")
     prospects_data = []
-    total_prospect_revenue = 0.0
+    total_prospect_revenue = 0.0  # Placeholder - will be updated via API
     for prospect in prospects:
-        try:
-            # Use safe revenue calculation - returns 0.0 on any error
-            estimated_revenue = await calculate_client_revenue_async(prospect.id)
-        except Exception as e:
-            logger.warning(f"[DASHBOARD] Error calculating prospect revenue for {prospect.id}: {e}")
-            estimated_revenue = 0.0
-        
-        # Don't use default - show actual revenue (0 if no services)
-        total_prospect_revenue += estimated_revenue
-        
         # Safely get expected close date
         expected_close_date = None
         try:
@@ -1982,26 +1933,15 @@ async def dashboard(
         
         prospects_data.append({
             "client": prospect,
-            "estimated_revenue": estimated_revenue,
+            "estimated_revenue": 0.0,  # Placeholder - loaded via API
             "expected_close_date": expected_close_date
         })
     
-    # Step 7: Calculate won revenue (with explicit error handling)
-    # CRITICAL: Use same safe revenue calculation - if it fails, use 0.0
-    logger.info(f"[DASHBOARD] Calculating revenue for {len(won_clients)} won clients...")
+    # PERFORMANCE FIX: Won revenue loaded asynchronously
+    logger.info(f"[DASHBOARD] Preparing won deals data (revenue will load via API)...")
     won_data = []
-    total_won_revenue = 0.0
+    total_won_revenue = 0.0  # Placeholder - will be updated via API
     for client in won_clients:
-        try:
-            logger.info(f"[DASHBOARD] Calculating revenue for won client {client.id}...")
-            # Use safe revenue calculation - returns 0.0 on any error
-            actual_revenue = await calculate_client_revenue_async(client.id)
-        except Exception as e:
-            logger.error(f"[DASHBOARD] Error calculating revenue for won client {client.id}: {e}", exc_info=True)
-            actual_revenue = 0.0
-        
-        total_won_revenue += actual_revenue
-        
         # Safely get close date
         close_date = None
         try:
@@ -2015,27 +1955,15 @@ async def dashboard(
         
         won_data.append({
             "client": client,
-            "actual_revenue": actual_revenue,
+            "actual_revenue": 0.0,  # Placeholder - loaded via API
             "close_date": close_date
         })
     
-    # Step 8: Calculate lost value (with explicit error handling)
-    # CRITICAL: Use same safe revenue calculation - if it fails, use 0.0
-    logger.info(f"[DASHBOARD] Calculating value for {len(lost_clients)} lost clients...")
+    # PERFORMANCE FIX: Lost value loaded asynchronously
+    logger.info(f"[DASHBOARD] Preparing lost deals data (revenue will load via API)...")
     lost_data = []
-    total_lost_value = 0.0
+    total_lost_value = 0.0  # Placeholder - will be updated via API
     for client in lost_clients:
-        try:
-            logger.info(f"[DASHBOARD] Calculating value for lost client {client.id}...")
-            # Use safe revenue calculation - returns 0.0 on any error
-            estimated_value = await calculate_client_revenue_async(client.id)
-        except Exception as e:
-            logger.error(f"[DASHBOARD] Error calculating value for lost client {client.id}: {e}", exc_info=True)
-            estimated_value = 0.0
-        
-        # Don't use default - show actual value (0 if no services)
-        total_lost_value += estimated_value
-        
         # Safely get lost date
         lost_date = None
         try:
@@ -2047,25 +1975,12 @@ async def dashboard(
         except Exception:
             pass
         
-        # Get reason from notes if available (with explicit error handling)
+        # Get reason from notes if available (simplified - no DB query)
         reason = "Not specified"
-        try:
-            # Access notes relationship - may trigger lazy load
-            # Use eager loading to avoid N+1 queries
-            if hasattr(client, 'notes') and client.notes:
-                notes_list = list(client.notes)  # Force evaluation
-                if notes_list:
-                    latest_note = sorted(notes_list, key=lambda n: n.created_at if n.created_at else datetime.min, reverse=True)[0]
-                    if latest_note and "lost" in latest_note.content.lower():
-                        reason = latest_note.content[:100]
-        except Exception as e:
-            # Notes query failed - use default reason
-            logger.debug(f"[DASHBOARD] Error getting notes for client {client.id}: {e}")
-            pass
         
         lost_data.append({
             "client": client,
-            "estimated_value": estimated_value,
+            "estimated_value": 0.0,  # Placeholder - loaded via API
             "lost_date": lost_date,
             "reason": reason
         })
@@ -2121,16 +2036,10 @@ async def dashboard(
         logger.debug(f"[DASHBOARD] Could not schedule cache update: {e}")
         # Non-critical - continue without caching
     
-    # Render and return
-    render_start = time.perf_counter()
+    # Render and return immediately - revenue loads via API
     response = templates.TemplateResponse("dashboard.html", template_data)
-    render_duration = (time.perf_counter() - render_start) * 1000
-    
-    total_duration = (time.perf_counter() - route_start) * 1000
-    logger.info(f"[PERF] Dashboard complete: {total_duration:.2f}ms total "
-                f"(load: {load_duration:.2f}ms, stats: {stats_duration:.2f}ms, "
-                f"revenue: {revenue_duration:.2f}ms, render: {render_duration:.2f}ms)")
-    
+    route_duration = (time.perf_counter() - route_start) * 1000
+    logger.info(f"[PERF] Dashboard returned in {route_duration:.2f}ms (fast path - revenue loads asynchronously)")
     return response
 
 
