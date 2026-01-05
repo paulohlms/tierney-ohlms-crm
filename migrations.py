@@ -222,12 +222,27 @@ def _migrate_services_table(conn, inspector) -> bool:
     """
     Add missing columns to services table.
     
+    This function is idempotent - it can be run multiple times safely.
+    It checks for column existence using direct SQL queries to avoid
+    stale inspector cache issues.
+    
     Returns:
         True if all required columns exist or were added, False otherwise
     """
     try:
-        columns = {col['name'] for col in inspector.get_columns('services')}
-        columns_to_add = []
+        # Use direct SQL query to check column existence - more reliable than inspector cache
+        # This prevents duplicate column additions when migration runs multiple times
+        def column_exists(table_name: str, column_name: str) -> bool:
+            """Check if a column exists using direct SQL query."""
+            try:
+                result = conn.execute(text(f"""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = '{table_name}' AND column_name = '{column_name}'
+                """))
+                return result.fetchone() is not None
+            except Exception:
+                return False
         
         # Define required columns with their SQL definitions
         # Based on the Service model in models.py
@@ -238,36 +253,47 @@ def _migrate_services_table(conn, inspector) -> bool:
             'active': 'BOOLEAN DEFAULT TRUE'
         }
         
+        # Check each column and add only if missing
         for col_name, col_def in required_columns.items():
-            if col_name not in columns:
-                columns_to_add.append((col_name, col_def))
-        
-        # Add missing columns
-        for col_name, col_def in columns_to_add:
+            # Use direct SQL query instead of inspector to avoid cache issues
+            if column_exists('services', col_name):
+                print(f"[MIGRATION] Column 'services.{col_name}' already exists - skipping")
+                continue
+            
             try:
                 # PostgreSQL allows adding NOT NULL columns with DEFAULT in one statement
                 # This automatically populates existing rows with the default value
                 conn.execute(text(f"ALTER TABLE services ADD COLUMN {col_name} {col_def}"))
                 print(f"[MIGRATION] Added column 'services.{col_name}'")
+                
+                # Verify the column was actually added
+                if not column_exists('services', col_name):
+                    print(f"[MIGRATION ERROR] Column 'services.{col_name}' was not added successfully")
+                    return False
+                    
             except Exception as e:
-                # Check if column was actually added (might have been added concurrently)
-                inspector = inspect(engine)
-                current_columns = {col['name'] for col in inspector.get_columns('services')}
-                if col_name in current_columns:
-                    print(f"[MIGRATION] Column 'services.{col_name}' already exists")
+                error_msg = str(e).lower()
+                # PostgreSQL error codes: 42701 = duplicate_column
+                if 'duplicate' in error_msg or 'already exists' in error_msg or '42701' in error_msg:
+                    # Column exists - this is OK, might have been added concurrently
+                    print(f"[MIGRATION] Column 'services.{col_name}' already exists (detected via error)")
                 else:
                     print(f"[MIGRATION ERROR] Could not add column 'services.{col_name}': {e}")
                     return False
         
-        # Verify all columns exist
-        inspector = inspect(engine)
-        final_columns = {col['name'] for col in inspector.get_columns('services')}
+        # Final verification: ensure all required columns exist
+        missing_columns = []
         for col_name in required_columns.keys():
-            if col_name not in final_columns:
-                print(f"[MIGRATION ERROR] Column 'services.{col_name}' is missing after migration")
-                return False
+            if not column_exists('services', col_name):
+                missing_columns.append(col_name)
         
+        if missing_columns:
+            print(f"[MIGRATION ERROR] Missing columns after migration: {missing_columns}")
+            return False
+        
+        print(f"[MIGRATION] Services table migration completed successfully")
         return True
+        
     except Exception as e:
         print(f"[MIGRATION ERROR] Error migrating services table: {e}")
         import traceback
