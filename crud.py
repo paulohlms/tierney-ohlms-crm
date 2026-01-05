@@ -37,37 +37,60 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
     This ensures graceful degradation when database queries fail.
     
     CRITICAL: This function must not hang. If the query takes too long, return 0.0 immediately.
+    Uses a timeout mechanism to prevent indefinite blocking.
     """
     import logging
     from sqlalchemy.exc import SQLAlchemyError, OperationalError, TimeoutError
-    import signal
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+    import threading
     logger = logging.getLogger(__name__)
     
-    try:
-        logger.info(f"[REVENUE] Starting revenue calculation for client {client_id}")
-        
-        # CRITICAL: Use a fresh query with explicit timeout handling
-        # If the query hangs, we need to detect it and return 0.0 immediately
+    def _execute_query():
+        """Execute the database query in a separate thread."""
         try:
-            logger.info(f"[REVENUE] Executing database query for client {client_id}...")
-            
             # Use a simple, direct query - avoid complex joins that might hang
             services = db.query(Service).filter(
                 Service.client_id == client_id,
                 Service.active == True
             ).all()
+            return services
+        except Exception as e:
+            logger.error(f"[REVENUE] Query execution error for client {client_id}: {e}")
+            raise
+    
+    try:
+        logger.info(f"[REVENUE] Starting revenue calculation for client {client_id}")
+        
+        # CRITICAL: Execute query with 2-second timeout to prevent hanging
+        # If query hangs, return 0.0 immediately
+        try:
+            logger.info(f"[REVENUE] Executing database query for client {client_id} (timeout: 2s)...")
             
-            logger.info(f"[REVENUE] Query completed - found {len(services)} active services for client {client_id}")
+            # Use ThreadPoolExecutor with timeout to prevent indefinite blocking
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_execute_query)
+                try:
+                    services = future.result(timeout=2.0)  # 2 second timeout
+                    logger.info(f"[REVENUE] Query completed - found {len(services)} active services for client {client_id}")
+                except FutureTimeoutError:
+                    # Query timed out - return 0.0 immediately
+                    logger.error(f"[REVENUE] Query timeout for client {client_id} - returning 0.0 to prevent dashboard hang")
+                    return 0.0
+                except Exception as query_error:
+                    # Query failed - return 0 immediately
+                    error_msg = str(query_error)
+                    logger.error(f"[REVENUE] Database query failed for client {client_id}: {error_msg}", exc_info=True)
+                    
+                    # Check if it's a column-related error
+                    if 'column' in error_msg.lower() or 'duplicate' in error_msg.lower() or 'ambiguous' in error_msg.lower():
+                        logger.error(f"[REVENUE] Possible schema issue with services table - duplicate columns may exist")
+                    
+                    return 0.0
             
         except (SQLAlchemyError, OperationalError, TimeoutError) as query_error:
             # Database error - return 0 immediately
             error_msg = str(query_error)
             logger.error(f"[REVENUE] Database query failed for client {client_id}: {error_msg}", exc_info=True)
-            
-            # Check if it's a column-related error
-            if 'column' in error_msg.lower() or 'duplicate' in error_msg.lower() or 'ambiguous' in error_msg.lower():
-                logger.error(f"[REVENUE] Possible schema issue with services table - duplicate columns may exist")
-            
             return 0.0
         except Exception as query_error:
             # Any other error - return 0 immediately
