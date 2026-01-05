@@ -467,7 +467,12 @@ async def login(
         # Redirect to dashboard on success
         # The session cookie will be set automatically by SessionMiddleware
         logger.info(f"[LOGIN] Redirecting user {user.id} to dashboard")
-        return RedirectResponse(url="/dashboard", status_code=303)
+        logger.info(f"[LOGIN] Session state before redirect - user_id: {request.session.get('user_id')}, keys: {list(request.session.keys())}")
+        
+        # Create redirect response - session will be saved by middleware
+        response = RedirectResponse(url="/dashboard", status_code=303)
+        logger.info(f"[LOGIN] Redirect response created")
+        return response
     except ValueError as e:
         # Invalid user object
         error_context = {
