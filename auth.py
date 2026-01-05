@@ -162,8 +162,6 @@ def get_current_user(request: Request) -> Optional[User]:
         return user
     except Exception as e:
         # Database error - clear session and return None
-        import logging
-        logger = logging.getLogger(__name__)
         logger.error(f"Error getting current user: {e}", exc_info=True)
         _clear_session_safe(request)
         return None
