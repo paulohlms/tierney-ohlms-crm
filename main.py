@@ -1928,13 +1928,16 @@ async def dashboard(
                 pass
     
     # Step 6: Calculate prospect revenue (with explicit error handling)
+    # CRITICAL: Use same safe revenue calculation - if it fails, use 0.0
     logger.info(f"[DASHBOARD] Calculating revenue for {len(prospects)} prospects...")
     prospects_data = []
     total_prospect_revenue = 0.0
     for prospect in prospects:
         try:
+            # Use safe revenue calculation - returns 0.0 on any error
             estimated_revenue = calculate_client_revenue(db, prospect.id)
         except Exception as e:
+            logger.warning(f"[DASHBOARD] Error calculating prospect revenue for {prospect.id}: {e}")
             estimated_revenue = 0.0
         
         # Don't use default - show actual revenue (0 if no services)
