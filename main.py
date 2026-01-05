@@ -466,6 +466,7 @@ async def login(
         
         # Redirect to dashboard on success
         # The session cookie will be set automatically by SessionMiddleware
+        logger.info(f"[LOGIN] Redirecting user {user.id} to dashboard")
         return RedirectResponse(url="/dashboard", status_code=303)
     except ValueError as e:
         # Invalid user object
@@ -520,11 +521,6 @@ async def login(
             {"request": request, "error": error_msg},
             status_code=500
         )
-    
-    # Step 2: Repair Login POST Logic - Redirect on success
-    # Session cookie will be set automatically by SessionMiddleware
-    logger.info(f"[LOGIN] Redirecting user {user.id} to dashboard")
-    return RedirectResponse(url="/dashboard", status_code=303)
 
 
 @app.get("/logout")
