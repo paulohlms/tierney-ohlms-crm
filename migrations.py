@@ -359,18 +359,31 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
     """
     Add missing columns to timesheets table.
     
+    CRITICAL FIX: Uses direct SQL queries to check column existence,
+    preventing cache issues and ensuring reliable migration.
+    
     Returns:
         True if all required columns exist or were added, False otherwise
     """
     try:
-        columns = {col['name'] for col in inspector.get_columns('timesheets')}
-        columns_to_add = []
+        # Use direct SQL query to check column existence - more reliable than inspector cache
+        def column_exists(table_name: str, column_name: str) -> bool:
+            """Check if a column exists using direct SQL query."""
+            try:
+                result = conn.execute(text(f"""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = '{table_name}' AND column_name = '{column_name}'
+                """))
+                return result.fetchone() is not None
+            except Exception:
+                return False
         
         # Define required columns with their SQL definitions
         # Based on the Timesheet model in models.py
         required_columns = {
             'entry_date': "DATE NOT NULL DEFAULT CURRENT_DATE",  # Required field, add default for existing rows
-            'staff_member': "VARCHAR NOT NULL DEFAULT 'Unknown'",  # Required field
+            'staff_member': "VARCHAR NOT NULL DEFAULT 'Unknown'",  # Required field - THIS WAS MISSING
             'start_time': 'VARCHAR',
             'end_time': 'VARCHAR',
             'hours': 'DOUBLE PRECISION NOT NULL DEFAULT 0',  # Required field
@@ -381,36 +394,47 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
             'updated_at': 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP'
         }
         
+        # Check each column and add only if missing
         for col_name, col_def in required_columns.items():
-            if col_name not in columns:
-                columns_to_add.append((col_name, col_def))
-        
-        # Add missing columns
-        for col_name, col_def in columns_to_add:
+            # Use direct SQL query instead of inspector to avoid cache issues
+            if column_exists('timesheets', col_name):
+                print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists - skipping")
+                continue
+            
             try:
                 # PostgreSQL allows adding NOT NULL columns with DEFAULT in one statement
                 # This automatically populates existing rows with the default value
                 conn.execute(text(f"ALTER TABLE timesheets ADD COLUMN {col_name} {col_def}"))
                 print(f"[MIGRATION] Added column 'timesheets.{col_name}'")
+                
+                # Verify the column was actually added
+                if not column_exists('timesheets', col_name):
+                    print(f"[MIGRATION ERROR] Column 'timesheets.{col_name}' was not added successfully")
+                    return False
+                    
             except Exception as e:
-                # Check if column was actually added (might have been added concurrently)
-                inspector = inspect(engine)
-                current_columns = {col['name'] for col in inspector.get_columns('timesheets')}
-                if col_name in current_columns:
-                    print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists")
+                error_msg = str(e).lower()
+                # PostgreSQL error codes: 42701 = duplicate_column
+                if 'duplicate' in error_msg or 'already exists' in error_msg or '42701' in error_msg:
+                    # Column exists - this is OK, might have been added concurrently
+                    print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists (detected via error)")
                 else:
                     print(f"[MIGRATION ERROR] Could not add column 'timesheets.{col_name}': {e}")
                     return False
         
-        # Verify all columns exist
-        inspector = inspect(engine)
-        final_columns = {col['name'] for col in inspector.get_columns('timesheets')}
+        # Final verification: ensure all required columns exist
+        missing_columns = []
         for col_name in required_columns.keys():
-            if col_name not in final_columns:
-                print(f"[MIGRATION ERROR] Column 'timesheets.{col_name}' is missing after migration")
-                return False
+            if not column_exists('timesheets', col_name):
+                missing_columns.append(col_name)
         
+        if missing_columns:
+            print(f"[MIGRATION ERROR] Missing columns after migration: {missing_columns}")
+            return False
+        
+        print(f"[MIGRATION] Timesheets table migration completed successfully")
         return True
+        
     except Exception as e:
         print(f"[MIGRATION ERROR] Error migrating timesheets table: {e}")
         import traceback

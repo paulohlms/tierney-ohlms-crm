@@ -4,7 +4,7 @@ Main FastAPI application for the CRM tool.
 This is a server-rendered application using Jinja2 templates.
 All routes return HTML pages, not JSON APIs.
 """
-from fastapi import FastAPI, Depends, Request, Form, HTTPException, Query
+from fastapi import FastAPI, Depends, Request, Form, HTTPException, Query, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -19,7 +19,10 @@ import io
 import math
 import os
 import logging
+import time
+import asyncio
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
+from performance import PerformanceMiddleware, get_cache, set_cache, clear_cache
 
 # Configure logging
 logging.basicConfig(
@@ -222,7 +225,10 @@ def reset_admin_users():
 # Initialize FastAPI app
 app = FastAPI(title="Tierney & Ohlms CRM")
 
-# CRITICAL: Add TrustedHostMiddleware FIRST to handle proxy headers
+# PERFORMANCE: Add performance monitoring middleware FIRST
+app.add_middleware(PerformanceMiddleware)
+
+# CRITICAL: Add TrustedHostMiddleware to handle proxy headers
 # This must be added before SessionMiddleware so proxy headers are available
 # When deployed behind a proxy (Render, etc.), this allows FastAPI to:
 # 1. Trust X-Forwarded-* headers from the proxy
@@ -299,6 +305,20 @@ async def initialize_database_background():
         except Exception as e:
             logger.error(f"[BACKGROUND ERROR] Database migration failed: {e}", exc_info=True)
             logger.warning("[BACKGROUND] Continuing without migrations - application will work")
+        
+        # Step 2.5: Validate schema consistency (CRITICAL)
+        try:
+            logger.info("[BACKGROUND] Validating schema consistency...")
+            from schema_validator import validate_and_fix
+            schema_valid, schema_report = await loop.run_in_executor(executor, validate_and_fix)
+            if schema_valid:
+                logger.info("[BACKGROUND] Schema validation passed - models match database")
+            else:
+                logger.error(f"[BACKGROUND ERROR] Schema validation failed:\n{schema_report}")
+                logger.error("[BACKGROUND] Application may experience errors due to schema drift")
+        except Exception as e:
+            logger.error(f"[BACKGROUND ERROR] Schema validation failed: {e}", exc_info=True)
+            logger.warning("[BACKGROUND] Continuing without schema validation - application may fail")
         
         # Step 3: Reset/Create admin users
         try:
@@ -2049,10 +2069,7 @@ async def dashboard(
             "reason": reason
         })
     
-    # Step 9: Render dashboard (always succeeds with safe defaults)
-    logger.info("[DASHBOARD] Preparing template data...")
-    logger.info(f"[DASHBOARD] Template data: {len(prospects_data)} prospects, {len(won_data)} won deals, {len(lost_data)} lost deals")
-    
+    # Prepare template data
     template_data = {
         "request": request,
         "user": current_user,
@@ -2074,27 +2091,41 @@ async def dashboard(
         "today": date.today()
     }
     
-    logger.info("[DASHBOARD] ALL DATA PREPARED - Ready to render template")
-    logger.info(f"[DASHBOARD] Template data summary: {len(prospects_data)} prospects, {len(won_data)} won, {len(lost_data)} lost, revenue: ${total_revenue:,.2f}")
+    # PERFORMANCE: Cache the statistics for next request
+    background_tasks.add_task(
+        set_cache,
+        cache_key,
+        {
+            "prospects": prospects_data,
+            "prospects_count": len(prospects),
+            "total_prospect_revenue": total_prospect_revenue,
+            "won_deals": won_data,
+            "won_count": len(won_clients),
+            "total_won_revenue": total_won_revenue,
+            "lost_deals": lost_data,
+            "lost_count": len(lost_clients),
+            "total_lost_value": total_lost_value,
+            "total_clients": total_clients,
+            "active_clients": total_active,
+            "total_prospects": len(prospects),
+            "total_revenue": total_revenue,
+            "total_revenue_formatted": f"{total_revenue:,.0f}",
+            "total_hours": total_hours
+        },
+        timedelta(minutes=5)  # Cache for 5 minutes
+    )
     
-    logger.info("[DASHBOARD] Rendering dashboard template...")
-    try:
-        logger.info("[DASHBOARD] BEFORE TemplateResponse call")
-        response = templates.TemplateResponse("dashboard.html", template_data)
-        logger.info("[DASHBOARD] AFTER TemplateResponse call - template rendered successfully")
-        logger.info(f"[DASHBOARD] Response status: {response.status_code}, Response type: {type(response)}")
-        logger.info("[DASHBOARD] BEFORE return statement - about to return response to browser")
-        return response
-    except Exception as e:
-        logger.error(f"[DASHBOARD] Error rendering template: {e}", exc_info=True)
-        import traceback
-        logger.error(f"[DASHBOARD] Template error traceback: {traceback.format_exc()}")
-        # Return a simple error page if template fails
-        # NOTE: This returns HTML with a link, NOT a redirect
-        return HTMLResponse(
-            content=f"<h1>Dashboard Error</h1><p>Error loading dashboard: {str(e)}</p><p><a href='/login'>Return to Login</a></p>",
-            status_code=500
-        )
+    # Render and return
+    render_start = time.perf_counter()
+    response = templates.TemplateResponse("dashboard.html", template_data)
+    render_duration = (time.perf_counter() - render_start) * 1000
+    
+    total_duration = (time.perf_counter() - route_start) * 1000
+    logger.info(f"[PERF] Dashboard complete: {total_duration:.2f}ms total "
+                f"(load: {load_duration:.2f}ms, stats: {stats_duration:.2f}ms, "
+                f"revenue: {revenue_duration:.2f}ms, render: {render_duration:.2f}ms)")
+    
+    return response
 
 
 # ============================================================================
