@@ -7,6 +7,7 @@ Rebuilt with:
 - No hidden side effects
 """
 import bcrypt
+import logging
 from typing import Optional, Dict, Tuple
 from fastapi import Request
 from fastapi.responses import RedirectResponse
@@ -14,6 +15,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from models import User
 from database import SessionLocal
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -130,6 +133,10 @@ def get_current_user(request: Request) -> Optional[User]:
     Returns:
         User object if authenticated, None otherwise
     """
+    # Check if session exists and has user_id
+    if not hasattr(request, 'session'):
+        return None
+    
     user_id = request.session.get("user_id")
     if not user_id:
         return None
@@ -151,7 +158,9 @@ def get_current_user(request: Request) -> Optional[User]:
         return user
     except Exception as e:
         # Database error - clear session and return None
-        print(f"Error getting current user: {e}")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error getting current user: {e}", exc_info=True)
         _clear_session_safe(request)
         return None
     finally:
@@ -200,6 +209,12 @@ def set_user_session(request: Request, user: User) -> None:
     
     try:
         request.session["user_id"] = user_id
+        # Force session to be saved by marking it as modified
+        # This ensures the cookie is set before redirect
+        if hasattr(request.session, '_modified'):
+            request.session._modified = True
+        logger = logging.getLogger(__name__)
+        logger.info(f"[AUTH] Session set for user_id={user_id}, session keys: {list(request.session.keys())}")
     except AttributeError as e:
         error_context = {
             "function": "set_user_session",

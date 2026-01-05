@@ -312,7 +312,17 @@ async def initialize_database_background():
 # Add session middleware for authentication
 # Use environment variable if set, otherwise use default (change in production!)
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+# Configure session middleware with proper cookie settings
+# max_age: 7 days (604800 seconds)
+# same_site: "lax" allows cookies to be sent on top-level navigations
+# httponly: True prevents JavaScript access (security)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    max_age=604800,  # 7 days
+    same_site="lax",
+    https_only=False  # Set to True in production with HTTPS
+)
 
 # Setup templates and static files
 # Configure Jinja2 to handle UTF-8 encoding gracefully
@@ -437,6 +447,10 @@ async def login(
     # Set session and redirect
     try:
         set_user_session(request, user)
+        # Ensure session is marked as modified so it gets saved
+        # This is critical for the session cookie to be set before redirect
+        request.session.setdefault("_modified", True)
+        logger.info(f"[LOGIN] Session set for user {user.id} ({user.email})")
     except ValueError as e:
         # Invalid user object
         error_context = {
@@ -447,7 +461,7 @@ async def login(
             "error_type": "ValueError",
             "error_message": str(e)
         }
-        print(f"[LOGIN ERROR] {error_context}")
+        logger.error(f"[LOGIN ERROR] {error_context}")
         error_msg = "Invalid user data. Please contact support. (Error: User object validation failed)"
         return templates.TemplateResponse(
             "login.html",
@@ -464,7 +478,7 @@ async def login(
             "error_type": "RuntimeError",
             "error_message": str(e)
         }
-        print(f"[LOGIN ERROR] {error_context}")
+        logger.error(f"[LOGIN ERROR] {error_context}")
         error_msg = str(e) if "Session middleware" in str(e) else "Session error. Please try again or contact support."
         return templates.TemplateResponse(
             "login.html",
@@ -481,7 +495,7 @@ async def login(
             "error_type": type(e).__name__,
             "error_message": str(e)
         }
-        print(f"[LOGIN ERROR] {error_context}")
+        logger.error(f"[LOGIN ERROR] {error_context}")
         import traceback
         traceback.print_exc()
         error_msg = f"Unexpected error during login. Please contact support. (Error: {type(e).__name__})"
@@ -491,7 +505,10 @@ async def login(
             status_code=500
         )
     
-    return RedirectResponse(url="/dashboard", status_code=303)
+    # Create redirect response - session will be saved automatically by middleware
+    logger.info(f"[LOGIN] Redirecting user {user.id} to dashboard")
+    response = RedirectResponse(url="/dashboard", status_code=303)
+    return response
 
 
 @app.get("/logout")
