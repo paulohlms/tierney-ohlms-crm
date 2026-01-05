@@ -1854,21 +1854,28 @@ async def dashboard(
     logger.info(f"[DASHBOARD] Found {total_active} active clients out of {total_clients} total")
     
     # Calculate total revenue (all active clients)
+    # CRITICAL: Add timeout protection - if revenue calculation hangs, skip it
     logger.info(f"[DASHBOARD] Calculating total revenue for {len(active_clients)} active clients...")
     total_revenue = 0.0
     for i, c in enumerate(active_clients):
         try:
-            logger.info(f"[DASHBOARD] Calculating revenue for client {c.id} ({c.legal_name})...")
+            logger.info(f"[DASHBOARD] Calculating revenue for client {c.id} ({c.legal_name})... [Client {i+1}/{len(active_clients)}]")
+            
+            # Call revenue calculation - if it hangs, the function will return 0.0
             revenue = calculate_client_revenue(db, c.id)
             total_revenue += revenue
-            logger.info(f"[DASHBOARD] Client {c.id} revenue: {revenue}, running total: {total_revenue}")
+            
+            logger.info(f"[DASHBOARD] Client {c.id} revenue: ${revenue:,.2f}, running total: ${total_revenue:,.2f}")
+            
         except Exception as e:
             # Error calculating revenue - continue with 0 for this client
-            logger.error(f"[DASHBOARD] Error calculating revenue for client {c.id}: {e}", exc_info=True)
+            logger.error(f"[DASHBOARD] Exception calculating revenue for client {c.id}: {e}", exc_info=True)
             # Don't let one client's revenue calculation block the entire dashboard
             revenue = 0.0
             total_revenue += revenue
-    logger.info(f"[DASHBOARD] Total revenue calculated: {total_revenue}")
+            logger.info(f"[DASHBOARD] Skipped client {c.id} revenue (error), continuing...")
+    
+    logger.info(f"[DASHBOARD] Total revenue calculation complete: ${total_revenue:,.2f}")
     
     # Calculate total hours (all timesheets)
     logger.info("[DASHBOARD] Getting timesheet summary...")

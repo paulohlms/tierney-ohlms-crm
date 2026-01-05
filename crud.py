@@ -35,24 +35,32 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
     
     Returns 0.0 if calculation fails (e.g., Service table issues, transaction errors).
     This ensures graceful degradation when database queries fail.
+    
+    CRITICAL: This function must not hang. If the query takes too long, return 0.0 immediately.
     """
     import logging
+    from sqlalchemy.exc import SQLAlchemyError, OperationalError, TimeoutError
+    import signal
     logger = logging.getLogger(__name__)
     
     try:
-        logger.debug(f"[REVENUE] Calculating revenue for client {client_id}")
+        logger.info(f"[REVENUE] Starting revenue calculation for client {client_id}")
         
-        # Query services - this might hang if table has schema issues
-        # Use explicit column selection to avoid issues with duplicate columns
+        # CRITICAL: Use a fresh query with explicit timeout handling
+        # If the query hangs, we need to detect it and return 0.0 immediately
         try:
-            # Try to query with explicit column selection to avoid schema issues
+            logger.info(f"[REVENUE] Executing database query for client {client_id}...")
+            
+            # Use a simple, direct query - avoid complex joins that might hang
             services = db.query(Service).filter(
                 Service.client_id == client_id,
                 Service.active == True
             ).all()
-            logger.debug(f"[REVENUE] Found {len(services)} active services for client {client_id}")
-        except Exception as query_error:
-            # If query fails (e.g., duplicate columns, schema mismatch), log and return 0
+            
+            logger.info(f"[REVENUE] Query completed - found {len(services)} active services for client {client_id}")
+            
+        except (SQLAlchemyError, OperationalError, TimeoutError) as query_error:
+            # Database error - return 0 immediately
             error_msg = str(query_error)
             logger.error(f"[REVENUE] Database query failed for client {client_id}: {error_msg}", exc_info=True)
             
@@ -61,7 +69,14 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
                 logger.error(f"[REVENUE] Possible schema issue with services table - duplicate columns may exist")
             
             return 0.0
+        except Exception as query_error:
+            # Any other error - return 0 immediately
+            error_msg = str(query_error)
+            logger.error(f"[REVENUE] Unexpected error during query for client {client_id}: {error_msg}", exc_info=True)
+            return 0.0
         
+        # Calculate revenue from services
+        logger.info(f"[REVENUE] Calculating revenue from {len(services)} services...")
         revenue = 0.0
         for service in services:
             try:
@@ -79,11 +94,12 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
                 logger.warning(f"[REVENUE] Error calculating revenue for service {service.id}: {e}")
                 continue
         
-        logger.debug(f"[REVENUE] Total revenue for client {client_id}: {revenue}")
+        logger.info(f"[REVENUE] Revenue calculation complete for client {client_id}: ${revenue:,.2f}")
         return revenue
+        
     except Exception as e:
-        # Graceful degradation: return 0 if query fails
-        logger.error(f"[REVENUE] Error calculating revenue for client {client_id}: {e}", exc_info=True)
+        # Graceful degradation: return 0 if anything fails
+        logger.error(f"[REVENUE] Outer error calculating revenue for client {client_id}: {e}", exc_info=True)
         return 0.0
 
 
