@@ -653,19 +653,32 @@ async def clients_list(
         clients = []
     
     # Calculate revenue and timesheet summaries for each client with error handling
+    # CRITICAL: Timesheet errors should NEVER break the clients list page
     from crud import get_timesheet_summary
     clients_with_data = []
     for client in clients:
+        # Revenue calculation (async, non-blocking)
+        revenue = 0.0
         try:
             revenue = await calculate_client_revenue_async(client.id)
         except Exception as e:
-            logger.warning(f"Error calculating revenue for client {client.id}: {e}")
-            revenue = 0.0
+            logger.warning(f"[CLIENTS] Error calculating revenue for client {client.id}: {e}")
+            revenue = 0.0  # Safe default
         
+        # Timesheet summary (defensive - never fails)
+        timesheet_summary = {
+            "total_hours": 0.0,
+            "billable_hours": 0.0,
+            "total_entries": 0
+        }
         try:
             timesheet_summary = get_timesheet_summary(db, client_id=client.id)
+            # Verify it's a dict (get_timesheet_summary returns safe defaults on error)
+            if not isinstance(timesheet_summary, dict):
+                timesheet_summary = {"total_hours": 0.0, "billable_hours": 0.0, "total_entries": 0}
         except Exception as e:
-            logger.warning(f"Error getting timesheet summary for client {client.id}: {e}")
+            logger.warning(f"[CLIENTS] Error getting timesheet summary for client {client.id}: {e}")
+            # Use safe defaults - never break the page
             timesheet_summary = {"total_hours": 0.0, "billable_hours": 0.0, "total_entries": 0}
         
         clients_with_data.append({
