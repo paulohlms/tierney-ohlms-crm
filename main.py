@@ -2074,12 +2074,16 @@ async def dashboard(
         "today": date.today()
     }
     
+    logger.info("[DASHBOARD] ALL DATA PREPARED - Ready to render template")
+    logger.info(f"[DASHBOARD] Template data summary: {len(prospects_data)} prospects, {len(won_data)} won, {len(lost_data)} lost, revenue: ${total_revenue:,.2f}")
+    
     logger.info("[DASHBOARD] Rendering dashboard template...")
     try:
+        logger.info("[DASHBOARD] BEFORE TemplateResponse call")
         response = templates.TemplateResponse("dashboard.html", template_data)
-        logger.info("[DASHBOARD] Template rendered successfully")
+        logger.info("[DASHBOARD] AFTER TemplateResponse call - template rendered successfully")
         logger.info(f"[DASHBOARD] Response status: {response.status_code}, Response type: {type(response)}")
-        logger.info("[DASHBOARD] Returning dashboard response to browser")
+        logger.info("[DASHBOARD] BEFORE return statement - about to return response to browser")
         return response
     except Exception as e:
         logger.error(f"[DASHBOARD] Error rendering template: {e}", exc_info=True)
