@@ -721,19 +721,7 @@ def get_timesheet_summary(
             "total_entries": total_entries
         }
         
-    except (ProgrammingError, UndefinedColumn) as e:
-        # Schema error - column doesn't exist
-        error_msg = str(e)
-        if 'staff_member' in error_msg or 'UndefinedColumn' in error_msg:
-            logger.error(
-                f"[TIMESHEET] Schema error: timesheets table missing required column. "
-                f"Error: {error_msg}. "
-                f"This indicates a migration issue. Returning safe defaults."
-            )
-        else:
-            logger.error(f"[TIMESHEET] Schema error in get_timesheet_summary: {e}", exc_info=True)
-        db.rollback()
-        return safe_default
+    # NO FALLBACKS: If columns are missing, this will crash (migration must fix it)
         
     except SQLAlchemyError as e:
         logger.error(f"[TIMESHEET] Database error in get_timesheet_summary: {e}", exc_info=True)
