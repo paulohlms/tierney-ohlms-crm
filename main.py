@@ -307,19 +307,20 @@ async def initialize_database_background():
             logger.error(f"[BACKGROUND ERROR] Database migration failed: {e}", exc_info=True)
             logger.warning("[BACKGROUND] Continuing without migrations - application will work")
         
-        # Step 2.5: Validate schema consistency (CRITICAL)
+        # Step 2.5: Comprehensive schema fix (CRITICAL)
         try:
-            logger.info("[BACKGROUND] Validating schema consistency...")
-            from schema_validator import validate_and_fix
-            schema_valid, schema_report = await loop.run_in_executor(executor, validate_and_fix)
-            if schema_valid:
-                logger.info("[BACKGROUND] Schema validation passed - models match database")
+            logger.info("[BACKGROUND] Running comprehensive schema fix...")
+            from schema_fix import fix_all_schema_drift
+            schema_success, schema_report = await loop.run_in_executor(executor, fix_all_schema_drift)
+            if schema_success:
+                logger.info("[BACKGROUND] Comprehensive schema fix completed successfully")
+                logger.info(f"[BACKGROUND] Schema fix report:\n{schema_report}")
             else:
-                logger.error(f"[BACKGROUND ERROR] Schema validation failed:\n{schema_report}")
-                logger.error("[BACKGROUND] Application may experience errors due to schema drift")
+                logger.warning(f"[BACKGROUND] Schema fix completed with issues:\n{schema_report}")
+                logger.warning("[BACKGROUND] Application will continue but some features may not work")
         except Exception as e:
-            logger.error(f"[BACKGROUND ERROR] Schema validation failed: {e}", exc_info=True)
-            logger.warning("[BACKGROUND] Continuing without schema validation - application may fail")
+            logger.error(f"[BACKGROUND ERROR] Schema fix failed: {e}", exc_info=True)
+            logger.warning("[BACKGROUND] Continuing without schema fix - application may experience errors")
         
         # Step 3: Reset/Create admin users
         try:

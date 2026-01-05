@@ -27,11 +27,9 @@ def migrate_database_schema():
         return True
     
     try:
-        # Use isolated connection with autocommit for DDL operations
-        # This prevents transaction state from affecting the main session pool
-        with engine.connect() as conn:
-            # Set autocommit mode for DDL operations
-            conn = conn.execution_options(autocommit=True)
+        # Use engine.begin() for proper transaction handling
+        # This ensures DDL changes are committed properly
+        with engine.begin() as conn:
             inspector = inspect(engine)
             
             # Migrate users table
@@ -410,9 +408,8 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
             try:
                 # PostgreSQL allows adding NOT NULL columns with DEFAULT in one statement
                 # This automatically populates existing rows with the default value
-                # CRITICAL: Use execute() with commit to ensure the change is persisted
+                # Note: engine.begin() context manager handles commit automatically
                 conn.execute(text(f"ALTER TABLE timesheets ADD COLUMN {col_name} {col_def}"))
-                conn.commit()  # Explicit commit for DDL
                 print(f"[MIGRATION] Added column 'timesheets.{col_name}'")
                 
                 # Verify the column was actually added
