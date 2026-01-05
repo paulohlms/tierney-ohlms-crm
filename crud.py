@@ -548,98 +548,14 @@ def create_timesheet(db: Session, timesheet: TimesheetCreate) -> Timesheet:
     """
     Create a new timesheet entry.
     
-    OPTIMIZED: After migration, uses fast ORM path.
-    Falls back to raw SQL only if schema is incomplete.
+    NO FALLBACKS: Uses ORM. If columns are missing, this will crash.
+    Migration must ensure all columns exist before this function is called.
     """
-    import logging
-    from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
-    from psycopg.errors import UndefinedColumn
-    from sqlalchemy import text
-    logger = logging.getLogger(__name__)
-    
-    try:
-        # Quick schema check (after migration, this should always be True)
-        result = db.execute(text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_schema = 'public' 
-            AND table_name = 'timesheets' 
-            AND column_name IN ('staff_member', 'entry_date', 'hours')
-        """))
-        existing_cols = {row[0] for row in result}
-        required_cols = {'staff_member', 'entry_date', 'hours'}
-        
-        if not required_cols.issubset(existing_cols):
-            # Schema incomplete - use raw SQL fallback
-            missing = required_cols - existing_cols
-            logger.warning(
-                f"[TIMESHEET] Missing columns: {missing}. Using raw SQL fallback. "
-                f"Run migrate_db.py to fix."
-            )
-            timesheet_dict = timesheet.dict()
-            
-            # Build INSERT with only existing columns
-            columns = []
-            values = []
-            placeholders = []
-            
-            # Add required columns that exist
-            for col in ['client_id', 'entry_date', 'hours']:
-                if col in timesheet_dict and timesheet_dict[col] is not None:
-                    columns.append(col)
-                    values.append(timesheet_dict[col])
-                    placeholders.append(col)
-            
-            # Add optional columns if they exist and have values
-            optional_cols = ['staff_member', 'start_time', 'end_time', 'project_task', 'description', 'billable']
-            for col in optional_cols:
-                if col in existing_cols and col in timesheet_dict and timesheet_dict[col] is not None:
-                    columns.append(col)
-                    values.append(timesheet_dict[col])
-                    placeholders.append(col)
-            
-            # Execute raw INSERT
-            sql = f"""
-                INSERT INTO timesheets ({', '.join(columns)})
-                VALUES ({', '.join([f':{p}' for p in placeholders])})
-                RETURNING id
-            """
-            result = db.execute(text(sql), dict(zip(placeholders, values)))
-            db.commit()
-            timesheet_id = result.scalar()
-            
-            # Fetch the created timesheet
-            db_timesheet = get_timesheet(db, timesheet_id)
-            if db_timesheet:
-                logger.info(f"Created timesheet {db_timesheet.id} for client {db_timesheet.client_id} using raw SQL")
-                return db_timesheet
-            else:
-                raise Exception("Failed to retrieve created timesheet")
-        else:
-            # Schema complete - use fast ORM path
-            db_timesheet = Timesheet(**timesheet.dict())
-            db.add(db_timesheet)
-            db.commit()
-            db.refresh(db_timesheet)
-            logger.info(f"Created timesheet {db_timesheet.id} for client {db_timesheet.client_id}: {db_timesheet.hours}h by {db_timesheet.staff_member}")
-            return db_timesheet
-            
-    except (ProgrammingError, UndefinedColumn) as e:
-        error_msg = str(e)
-        logger.error(
-            f"[TIMESHEET] Schema error creating timesheet: {error_msg}. "
-            f"Run migrate_db.py to fix schema."
-        )
-        db.rollback()
-        raise
-    except SQLAlchemyError as e:
-        logger.error(f"[TIMESHEET] Database error creating timesheet: {e}", exc_info=True)
-        db.rollback()
-        raise
-    except Exception as e:
-        logger.error(f"[TIMESHEET] Unexpected error creating timesheet: {e}", exc_info=True)
-        db.rollback()
-        raise
+    db_timesheet = Timesheet(**timesheet.dict())
+    db.add(db_timesheet)
+    db.commit()
+    db.refresh(db_timesheet)
+    return db_timesheet
 
 
 def update_timesheet(db: Session, timesheet_id: int, timesheet_update: TimesheetUpdate) -> Optional[Timesheet]:

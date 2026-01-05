@@ -360,57 +360,58 @@ def _migrate_contacts_table(conn, inspector) -> bool:
 
 def _migrate_timesheets_table(conn, inspector) -> bool:
     """
-    Add missing columns to timesheets table.
+    FORCE add missing columns to timesheets table using raw SQL ALTER TABLE.
     
-    CRITICAL FIX: Uses direct SQL queries to check column existence,
-    preventing cache issues and ensuring reliable migration.
+    This function uses raw SQL to explicitly check and add columns.
+    No fallbacks - if columns are missing, they must be added or migration fails.
     
     Returns:
         True if all required columns exist or were added, False otherwise
     """
     try:
-        # Use direct SQL query to check column existence - more reliable than inspector cache
+        # Use direct SQL query to check column existence
         def column_exists(table_name: str, column_name: str) -> bool:
             """Check if a column exists using direct SQL query."""
             try:
-                result = conn.execute(text(f"""
+                result = conn.execute(text("""
                     SELECT column_name 
                     FROM information_schema.columns 
-                    WHERE table_name = '{table_name}' AND column_name = '{column_name}'
-                """))
+                    WHERE table_schema = 'public' 
+                    AND table_name = :table_name 
+                    AND column_name = :column_name
+                """), {"table_name": table_name, "column_name": column_name})
                 return result.fetchone() is not None
             except Exception:
                 return False
         
-        # Define required columns with their SQL definitions
-        # Based on the Timesheet model in models.py
-        # CRITICAL: staff_member is required by the model - must exist in DB
+        # FORCE: Define all required columns - these MUST exist
+        # Based on Timesheet model: staff_member, entry_date, start_time, end_time, hours, project_task, description, billable
         required_columns = {
-            'entry_date': "DATE NOT NULL DEFAULT CURRENT_DATE",  # Required field, add default for existing rows
-            'staff_member': "VARCHAR NOT NULL DEFAULT 'Unknown'",  # CRITICAL: Required by model - fixes schema drift
+            'staff_member': "VARCHAR NOT NULL DEFAULT 'Unknown'",
+            'entry_date': "DATE NOT NULL DEFAULT CURRENT_DATE",
             'start_time': 'VARCHAR',
             'end_time': 'VARCHAR',
-            'hours': 'DOUBLE PRECISION NOT NULL DEFAULT 0',  # Required field
+            'hours': 'DOUBLE PRECISION NOT NULL DEFAULT 0',
             'project_task': 'VARCHAR',
             'description': 'TEXT',
-            'billable': 'BOOLEAN DEFAULT TRUE',
-            'created_at': 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP',
-            'updated_at': 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP'
+            'billable': 'BOOLEAN DEFAULT TRUE'
         }
         
-        # Check each column and add only if missing
+        # FORCE: Check each column and add if missing using raw SQL ALTER TABLE
+        columns_added = []
         for col_name, col_def in required_columns.items():
-            # Use direct SQL query instead of inspector to avoid cache issues
+            # Check if column exists
             if column_exists('timesheets', col_name):
-                print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists - skipping")
+                print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists")
                 continue
             
+            # FORCE: Add column using raw SQL ALTER TABLE
+            # PostgreSQL doesn't support IF NOT EXISTS, so we check first, then add
             try:
-                # PostgreSQL allows adding NOT NULL columns with DEFAULT in one statement
-                # This automatically populates existing rows with the default value
-                # Note: engine.begin() context manager handles commit automatically
-                conn.execute(text(f"ALTER TABLE timesheets ADD COLUMN {col_name} {col_def}"))
+                sql = f"ALTER TABLE timesheets ADD COLUMN {col_name} {col_def}"
+                conn.execute(text(sql))
                 print(f"[MIGRATION] Added column 'timesheets.{col_name}'")
+                columns_added.append(col_name)
                 
                 # Verify the column was actually added
                 if not column_exists('timesheets', col_name):
@@ -419,16 +420,14 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
                     
             except Exception as e:
                 error_msg = str(e).lower()
-                # PostgreSQL error codes: 42701 = duplicate_column
-                if 'duplicate' in error_msg or 'already exists' in error_msg or '42701' in error_msg:
-                    # Column exists - this is OK, might have been added concurrently
-                    print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists (detected via error)")
+                # Check if column was added concurrently
+                if column_exists('timesheets', col_name):
+                    print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists (race condition)")
                 else:
                     print(f"[MIGRATION ERROR] Could not add column 'timesheets.{col_name}': {e}")
-                    # Note: rollback is handled by the context manager (engine.begin())
                     return False
         
-        # Final verification: ensure all required columns exist
+        # FORCE: Final verification - all columns MUST exist
         missing_columns = []
         for col_name in required_columns.keys():
             if not column_exists('timesheets', col_name):
@@ -438,7 +437,8 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
             print(f"[MIGRATION ERROR] Missing columns after migration: {missing_columns}")
             return False
         
-        print(f"[MIGRATION] Timesheets table migration completed successfully")
+        # SUCCESS: Log the specific message requested
+        print("[MIGRATION] Timesheets table updated")
         return True
         
     except Exception as e:

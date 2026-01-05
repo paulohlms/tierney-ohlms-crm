@@ -652,34 +652,13 @@ async def clients_list(
         logger.error(f"Unexpected error loading clients: {e}", exc_info=True)
         clients = []
     
-    # Calculate revenue and timesheet summaries for each client with error handling
-    # CRITICAL: Timesheet errors should NEVER break the clients list page
+    # Calculate revenue and timesheet summaries for each client
+    # NO FALLBACKS: If columns are missing, this will crash (migration must fix it)
     from crud import get_timesheet_summary
     clients_with_data = []
     for client in clients:
-        # Revenue calculation (async, non-blocking)
-        revenue = 0.0
-        try:
-            revenue = await calculate_client_revenue_async(client.id)
-        except Exception as e:
-            logger.warning(f"[CLIENTS] Error calculating revenue for client {client.id}: {e}")
-            revenue = 0.0  # Safe default
-        
-        # Timesheet summary (defensive - never fails)
-        timesheet_summary = {
-            "total_hours": 0.0,
-            "billable_hours": 0.0,
-            "total_entries": 0
-        }
-        try:
-            timesheet_summary = get_timesheet_summary(db, client_id=client.id)
-            # Verify it's a dict (get_timesheet_summary returns safe defaults on error)
-            if not isinstance(timesheet_summary, dict):
-                timesheet_summary = {"total_hours": 0.0, "billable_hours": 0.0, "total_entries": 0}
-        except Exception as e:
-            logger.warning(f"[CLIENTS] Error getting timesheet summary for client {client.id}: {e}")
-            # Use safe defaults - never break the page
-            timesheet_summary = {"total_hours": 0.0, "billable_hours": 0.0, "total_entries": 0}
+        revenue = await calculate_client_revenue_async(client.id)
+        timesheet_summary = get_timesheet_summary(db, client_id=client.id)
         
         clients_with_data.append({
             "client": client,
@@ -781,32 +760,22 @@ async def prospects_list(
         logger.error(f"Unexpected error loading prospects: {e}", exc_info=True)
         prospects = []
         
-    # Calculate estimated revenue for each prospect with error handling
-    # CRITICAL: Revenue calculation errors should NEVER break the prospects page
+    # Calculate estimated revenue for each prospect
+    # NO FALLBACKS: If columns are missing, this will crash (migration must fix it)
     prospects_with_data = []
     for prospect in prospects:
-        # Revenue calculation (async, non-blocking, defensive)
-        estimated_revenue = 0.0
-        try:
-            estimated_revenue = await calculate_client_revenue_async(prospect.id)
-        except Exception as e:
-            logger.warning(f"[PROSPECTS] Error calculating revenue for prospect {prospect.id}: {e}")
-            estimated_revenue = 0.0  # Safe default - show 0 if calculation fails
+        estimated_revenue = await calculate_client_revenue_async(prospect.id)
         
         # Determine stage
         stage_value = "New"
-        try:
-            if prospect.next_follow_up_date:
-                days_until = (prospect.next_follow_up_date - date.today()).days
-                if days_until < 0:
-                    stage_value = "Negotiation"
-                elif days_until <= 7:
-                    stage_value = "Proposal"
-                elif days_until <= 30:
-                    stage_value = "Contacted"
-        except Exception as e:
-            logger.warning(f"[PROSPECTS] Error determining stage for prospect {prospect.id}: {e}")
-            stage_value = "New"  # Safe default
+        if prospect.next_follow_up_date:
+            days_until = (prospect.next_follow_up_date - date.today()).days
+            if days_until < 0:
+                stage_value = "Negotiation"
+            elif days_until <= 7:
+                stage_value = "Proposal"
+            elif days_until <= 30:
+                stage_value = "Contacted"
         
         # Check filters
         if stage and stage != stage_value:
@@ -815,30 +784,21 @@ async def prospects_list(
         if owner and prospect.owner_name and owner.lower() not in prospect.owner_name.lower():
             continue
         
-        # Get expected close date (defensive)
+        # Get expected close date
         expected_close_date = None
-        try:
-            if prospect.next_follow_up_date:
-                expected_close_date = prospect.next_follow_up_date
-            elif prospect.created_at:
-                if hasattr(prospect.created_at, 'date'):
-                    expected_close_date = prospect.created_at.date()
-                else:
-                    expected_close_date = prospect.created_at
-        except Exception as e:
-            logger.warning(f"[PROSPECTS] Error getting close date for prospect {prospect.id}: {e}")
-            expected_close_date = None
+        if prospect.next_follow_up_date:
+            expected_close_date = prospect.next_follow_up_date
+        elif prospect.created_at:
+            if hasattr(prospect.created_at, 'date'):
+                expected_close_date = prospect.created_at.date()
+            else:
+                expected_close_date = prospect.created_at
         
-        # Get first contact for display (defensive)
+        # Get first contact for display
         first_contact = None
-        try:
-            if prospect.contacts:
-                first_contact = prospect.contacts[0] if len(prospect.contacts) > 0 else None
-        except Exception as e:
-            logger.warning(f"[PROSPECTS] Error loading contacts for prospect {prospect.id}: {e}")
-            first_contact = None
+        if prospect.contacts:
+            first_contact = prospect.contacts[0] if len(prospect.contacts) > 0 else None
         
-        # Always add prospect to list (even if revenue is 0)
         prospects_with_data.append({
             "client": prospect,
             "contact": first_contact,
