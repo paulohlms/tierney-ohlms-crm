@@ -2053,11 +2053,16 @@ async def dashboard(
     logger.info("[DASHBOARD] Rendering dashboard template...")
     try:
         response = templates.TemplateResponse("dashboard.html", template_data)
-        logger.info("[DASHBOARD] Template rendered successfully, returning response")
+        logger.info("[DASHBOARD] Template rendered successfully")
+        logger.info(f"[DASHBOARD] Response status: {response.status_code}, Response type: {type(response)}")
+        logger.info("[DASHBOARD] Returning dashboard response to browser")
         return response
     except Exception as e:
         logger.error(f"[DASHBOARD] Error rendering template: {e}", exc_info=True)
+        import traceback
+        logger.error(f"[DASHBOARD] Template error traceback: {traceback.format_exc()}")
         # Return a simple error page if template fails
+        # NOTE: This returns HTML with a link, NOT a redirect
         return HTMLResponse(
             content=f"<h1>Dashboard Error</h1><p>Error loading dashboard: {str(e)}</p><p><a href='/login'>Return to Login</a></p>",
             status_code=500

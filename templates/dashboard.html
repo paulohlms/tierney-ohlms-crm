@@ -70,7 +70,11 @@
                         <td>${{ "{:,.0f}".format(item.estimated_revenue) }}</td>
                         <td>
                             {% if item.expected_close_date %}
-                                {{ item.expected_close_date.strftime('%Y-%m-%d') }}
+                                {% if item.expected_close_date.strftime %}
+                                    {{ item.expected_close_date.strftime('%Y-%m-%d') }}
+                                {% else %}
+                                    {{ item.expected_close_date }}
+                                {% endif %}
                             {% else %}
                                 <span style="color: #999;">-</span>
                             {% endif %}
@@ -117,7 +121,11 @@
                         <td style="color: #27ae60; font-weight: 500;">${{ "{:,.0f}".format(item.actual_revenue) }}</td>
                         <td>
                             {% if item.close_date %}
-                                {{ item.close_date.strftime('%Y-%m-%d') if item.close_date else '-' }}
+                                {% if item.close_date.strftime %}
+                                    {{ item.close_date.strftime('%Y-%m-%d') }}
+                                {% else %}
+                                    {{ item.close_date }}
+                                {% endif %}
                             {% else %}
                                 <span style="color: #999;">-</span>
                             {% endif %}
@@ -163,7 +171,11 @@
                     <td style="color: #e74c3c;">${{ "{:,.0f}".format(item.estimated_value) }}</td>
                     <td>
                         {% if item.lost_date %}
-                            {{ item.lost_date.strftime('%Y-%m-%d') if item.lost_date else '-' }}
+                            {% if item.lost_date.strftime %}
+                                {{ item.lost_date.strftime('%Y-%m-%d') }}
+                            {% else %}
+                                {{ item.lost_date }}
+                            {% endif %}
                         {% else %}
                             <span style="color: #999;">-</span>
                         {% endif %}
