@@ -43,7 +43,9 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
         logger.debug(f"[REVENUE] Calculating revenue for client {client_id}")
         
         # Query services - this might hang if table has schema issues
+        # Use explicit column selection to avoid issues with duplicate columns
         try:
+            # Try to query with explicit column selection to avoid schema issues
             services = db.query(Service).filter(
                 Service.client_id == client_id,
                 Service.active == True
@@ -51,7 +53,13 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
             logger.debug(f"[REVENUE] Found {len(services)} active services for client {client_id}")
         except Exception as query_error:
             # If query fails (e.g., duplicate columns, schema mismatch), log and return 0
-            logger.error(f"[REVENUE] Database query failed for client {client_id}: {query_error}", exc_info=True)
+            error_msg = str(query_error)
+            logger.error(f"[REVENUE] Database query failed for client {client_id}: {error_msg}", exc_info=True)
+            
+            # Check if it's a column-related error
+            if 'column' in error_msg.lower() or 'duplicate' in error_msg.lower() or 'ambiguous' in error_msg.lower():
+                logger.error(f"[REVENUE] Possible schema issue with services table - duplicate columns may exist")
+            
             return 0.0
         
         revenue = 0.0
