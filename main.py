@@ -1866,10 +1866,13 @@ async def dashboard(
         for i, c in enumerate(active_clients):
             try:
                 logger.info(f"[DASHBOARD] Calculating revenue for client {c.id} ({c.legal_name})... [Client {i+1}/{len(active_clients)}]")
+                logger.info(f"[DASHBOARD] BEFORE revenue calculation call for client {c.id}")
                 
-                # Call revenue calculation - uses fresh session to avoid transaction locks
+                # Call revenue calculation - uses raw SQL to avoid ORM hanging issues
                 # If it fails or hangs, function returns 0.0 immediately
                 revenue = calculate_client_revenue(db, c.id)
+                
+                logger.info(f"[DASHBOARD] AFTER revenue calculation call for client {c.id} - revenue: ${revenue:,.2f}")
                 total_revenue += revenue
                 
                 logger.info(f"[DASHBOARD] Client {c.id} revenue: ${revenue:,.2f}, running total: ${total_revenue:,.2f}")

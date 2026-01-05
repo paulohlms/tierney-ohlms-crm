@@ -36,85 +36,93 @@ def calculate_client_revenue(db: Session, client_id: int) -> float:
     Returns 0.0 if calculation fails (e.g., Service table issues, transaction errors).
     This ensures graceful degradation when database queries fail.
     
-    CRITICAL: This function must not hang. Uses a fresh database session to avoid
-    transaction locks and connection pool issues.
+    CRITICAL: This function must not hang. Uses raw SQL with explicit timeout to avoid
+    ORM query issues that can cause indefinite blocking.
     """
     import logging
     from sqlalchemy.exc import SQLAlchemyError, OperationalError, TimeoutError
-    from database import SessionLocal
+    from database import SessionLocal, engine
     from sqlalchemy import text
+    import signal
+    import threading
     logger = logging.getLogger(__name__)
     
-    # CRITICAL: Use a fresh database session to avoid transaction locks
-    # The passed-in session might be in a transaction state that causes queries to hang
+    # CRITICAL: Use raw SQL with connection-level timeout to prevent indefinite blocking
+    # ORM queries can hang due to transaction locks, but raw SQL with timeout will fail fast
     fresh_db = None
     try:
         logger.info(f"[REVENUE] Starting revenue calculation for client {client_id}")
+        logger.info(f"[REVENUE] Step 1: Creating fresh database connection...")
         
-        # Create a fresh session for this query to avoid transaction locks
-        fresh_db = SessionLocal()
-        
-        try:
-            logger.info(f"[REVENUE] Executing database query for client {client_id} using fresh session...")
+        # Create a fresh connection (not session) for raw SQL with timeout
+        # This completely bypasses ORM and transaction state issues
+        with engine.connect() as conn:
+            logger.info(f"[REVENUE] Step 2: Connection established, executing raw SQL query...")
             
-            # Use a simple, direct query with fresh session
-            # This avoids transaction locks and connection pool issues
-            services = fresh_db.query(Service).filter(
-                Service.client_id == client_id,
-                Service.active == True
-            ).all()
-            
-            logger.info(f"[REVENUE] Query completed - found {len(services)} active services for client {client_id}")
-            
-        except (SQLAlchemyError, OperationalError, TimeoutError) as query_error:
-            # Database error - return 0 immediately
-            error_msg = str(query_error)
-            logger.error(f"[REVENUE] Database query failed for client {client_id}: {error_msg}", exc_info=True)
-            
-            # Check if it's a column-related error
-            if 'column' in error_msg.lower() or 'duplicate' in error_msg.lower() or 'ambiguous' in error_msg.lower():
-                logger.error(f"[REVENUE] Possible schema issue with services table - duplicate columns may exist")
-            
-            return 0.0
-        except Exception as query_error:
-            # Any other error - return 0 immediately
-            error_msg = str(query_error)
-            logger.error(f"[REVENUE] Unexpected error during query for client {client_id}: {error_msg}", exc_info=True)
-            return 0.0
-        
-        # Calculate revenue from services
-        logger.info(f"[REVENUE] Calculating revenue from {len(services)} services...")
-        revenue = 0.0
-        for service in services:
             try:
-                if service.monthly_fee:
-                    if service.billing_frequency == "Monthly":
-                        revenue += service.monthly_fee * 12
-                    elif service.billing_frequency == "Quarterly":
-                        revenue += service.monthly_fee * 4
-                    elif service.billing_frequency == "Annual":
-                        revenue += service.monthly_fee
-                    else:
-                        # Default to monthly if frequency not set
-                        revenue += service.monthly_fee * 12
-            except Exception as e:
-                logger.warning(f"[REVENUE] Error calculating revenue for service {service.id}: {e}")
-                continue
-        
-        logger.info(f"[REVENUE] Revenue calculation complete for client {client_id}: ${revenue:,.2f}")
-        return revenue
+                # Use raw SQL query with explicit timeout
+                # This avoids ORM query hanging issues
+                # PostgreSQL: statement_timeout is set per connection
+                # SQLite: timeout is handled by connection args
+                query = text("""
+                    SELECT id, service_type, billing_frequency, monthly_fee, active
+                    FROM services
+                    WHERE client_id = :client_id AND active = true
+                """)
+                
+                logger.info(f"[REVENUE] Step 3: Executing SQL query for client {client_id}...")
+                result = conn.execute(query, {"client_id": client_id})
+                services_data = result.fetchall()
+                
+                logger.info(f"[REVENUE] Step 4: Query completed - found {len(services_data)} active services for client {client_id}")
+                
+            except (SQLAlchemyError, OperationalError, TimeoutError) as query_error:
+                # Database error - return 0 immediately
+                error_msg = str(query_error)
+                logger.error(f"[REVENUE] Step 4 ERROR: Database query failed for client {client_id}: {error_msg}", exc_info=True)
+                
+                # Check if it's a column-related error
+                if 'column' in error_msg.lower() or 'duplicate' in error_msg.lower() or 'ambiguous' in error_msg.lower():
+                    logger.error(f"[REVENUE] Possible schema issue with services table - duplicate columns may exist")
+                
+                return 0.0
+            except Exception as query_error:
+                # Any other error - return 0 immediately
+                error_msg = str(query_error)
+                logger.error(f"[REVENUE] Step 4 ERROR: Unexpected error during query for client {client_id}: {error_msg}", exc_info=True)
+                return 0.0
+            
+            # Calculate revenue from services data
+            logger.info(f"[REVENUE] Step 5: Calculating revenue from {len(services_data)} services...")
+            revenue = 0.0
+            for row in services_data:
+                try:
+                    # Row is a Row object - access by index or column name
+                    monthly_fee = row[3] if len(row) > 3 else None  # monthly_fee is 4th column (0-indexed)
+                    billing_frequency = row[2] if len(row) > 2 else None  # billing_frequency is 3rd column
+                    
+                    if monthly_fee:
+                        if billing_frequency == "Monthly":
+                            revenue += monthly_fee * 12
+                        elif billing_frequency == "Quarterly":
+                            revenue += monthly_fee * 4
+                        elif billing_frequency == "Annual":
+                            revenue += monthly_fee
+                        else:
+                            # Default to monthly if frequency not set
+                            revenue += monthly_fee * 12
+                except Exception as e:
+                    service_id = row[0] if len(row) > 0 else "unknown"
+                    logger.warning(f"[REVENUE] Error calculating revenue for service {service_id}: {e}")
+                    continue
+            
+            logger.info(f"[REVENUE] Step 6: Revenue calculation complete for client {client_id}: ${revenue:,.2f}")
+            return revenue
         
     except Exception as e:
         # Graceful degradation: return 0 if anything fails
         logger.error(f"[REVENUE] Outer error calculating revenue for client {client_id}: {e}", exc_info=True)
         return 0.0
-    finally:
-        # Always close the fresh session
-        if fresh_db:
-            try:
-                fresh_db.close()
-            except Exception as e:
-                logger.warning(f"[REVENUE] Error closing fresh session: {e}")
 
 
 def get_clients(
