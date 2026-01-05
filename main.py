@@ -307,20 +307,31 @@ async def initialize_database_background():
             logger.error(f"[BACKGROUND ERROR] Database migration failed: {e}", exc_info=True)
             logger.warning("[BACKGROUND] Continuing without migrations - application will work")
         
-        # Step 2.5: Comprehensive schema fix (CRITICAL)
+        # Step 2.5: Self-healing schema migration (CRITICAL - runs every startup)
         try:
-            logger.info("[BACKGROUND] Running comprehensive schema fix...")
+            logger.info("[BACKGROUND] Running self-healing schema migration...")
+            from self_heal_schema import self_heal_all_schema
+            heal_success = await loop.run_in_executor(executor, self_heal_all_schema)
+            if heal_success:
+                logger.info("[BACKGROUND] ✓ Self-healing schema migration completed successfully")
+            else:
+                logger.warning("[BACKGROUND] ⚠ Self-healing schema migration completed with issues")
+                logger.warning("[BACKGROUND] Application will continue but some features may not work")
+        except Exception as e:
+            logger.error(f"[BACKGROUND ERROR] Self-healing schema migration failed: {e}", exc_info=True)
+            logger.warning("[BACKGROUND] Continuing without self-healing - application may experience errors")
+        
+        # Step 2.6: Comprehensive schema fix (backup - runs after self-healing)
+        try:
+            logger.info("[BACKGROUND] Running comprehensive schema fix (backup)...")
             from schema_fix import fix_all_schema_drift
             schema_success, schema_report = await loop.run_in_executor(executor, fix_all_schema_drift)
             if schema_success:
                 logger.info("[BACKGROUND] Comprehensive schema fix completed successfully")
-                logger.info(f"[BACKGROUND] Schema fix report:\n{schema_report}")
             else:
                 logger.warning(f"[BACKGROUND] Schema fix completed with issues:\n{schema_report}")
-                logger.warning("[BACKGROUND] Application will continue but some features may not work")
         except Exception as e:
-            logger.error(f"[BACKGROUND ERROR] Schema fix failed: {e}", exc_info=True)
-            logger.warning("[BACKGROUND] Continuing without schema fix - application may experience errors")
+            logger.debug(f"[BACKGROUND] Comprehensive schema fix not available: {e}")
         
         # Step 3: Reset/Create admin users
         try:
@@ -758,14 +769,20 @@ async def prospects_list(
         prospects = []
         
     # Calculate estimated revenue for each prospect with error handling
+    # CRITICAL: Revenue calculation errors should NEVER break the prospects page
     prospects_with_data = []
     for prospect in prospects:
+        # Revenue calculation (async, non-blocking, defensive)
+        estimated_revenue = 0.0
         try:
             estimated_revenue = await calculate_client_revenue_async(prospect.id)
-            # Don't use default - show actual revenue (0 if no services)
-            
-            # Determine stage
-            stage_value = "New"
+        except Exception as e:
+            logger.warning(f"[PROSPECTS] Error calculating revenue for prospect {prospect.id}: {e}")
+            estimated_revenue = 0.0  # Safe default - show 0 if calculation fails
+        
+        # Determine stage
+        stage_value = "New"
+        try:
             if prospect.next_follow_up_date:
                 days_until = (prospect.next_follow_up_date - date.today()).days
                 if days_until < 0:
@@ -774,16 +791,20 @@ async def prospects_list(
                     stage_value = "Proposal"
                 elif days_until <= 30:
                     stage_value = "Contacted"
-            
-            # Check filters
-            if stage and stage != stage_value:
-                continue
-            
-            if owner and prospect.owner_name and owner.lower() not in prospect.owner_name.lower():
-                continue
-            
-            # Get expected close date
-            expected_close_date = None
+        except Exception as e:
+            logger.warning(f"[PROSPECTS] Error determining stage for prospect {prospect.id}: {e}")
+            stage_value = "New"  # Safe default
+        
+        # Check filters
+        if stage and stage != stage_value:
+            continue
+        
+        if owner and prospect.owner_name and owner.lower() not in prospect.owner_name.lower():
+            continue
+        
+        # Get expected close date (defensive)
+        expected_close_date = None
+        try:
             if prospect.next_follow_up_date:
                 expected_close_date = prospect.next_follow_up_date
             elif prospect.created_at:
@@ -791,27 +812,28 @@ async def prospects_list(
                     expected_close_date = prospect.created_at.date()
                 else:
                     expected_close_date = prospect.created_at
-            
-            # Get first contact for display (name, email, phone)
-            first_contact = None
-            try:
-                if prospect.contacts:
-                    first_contact = prospect.contacts[0] if len(prospect.contacts) > 0 else None
-            except Exception as e:
-                logger.warning(f"Error loading contacts for prospect {prospect.id}: {e}")
-                first_contact = None
-            
-            prospects_with_data.append({
-                "client": prospect,
-                "contact": first_contact,  # First contact for display
-                "estimated_revenue": estimated_revenue,
-                "estimated_revenue_formatted": f"{estimated_revenue:,.0f}",
-                "stage": stage_value,
-                "expected_close_date": expected_close_date
-            })
         except Exception as e:
-            logger.warning(f"Error processing prospect {prospect.id}: {e}")
-            continue
+            logger.warning(f"[PROSPECTS] Error getting close date for prospect {prospect.id}: {e}")
+            expected_close_date = None
+        
+        # Get first contact for display (defensive)
+        first_contact = None
+        try:
+            if prospect.contacts:
+                first_contact = prospect.contacts[0] if len(prospect.contacts) > 0 else None
+        except Exception as e:
+            logger.warning(f"[PROSPECTS] Error loading contacts for prospect {prospect.id}: {e}")
+            first_contact = None
+        
+        # Always add prospect to list (even if revenue is 0)
+        prospects_with_data.append({
+            "client": prospect,
+            "contact": first_contact,
+            "estimated_revenue": estimated_revenue,
+            "estimated_revenue_formatted": f"{estimated_revenue:,.0f}",
+            "stage": stage_value,
+            "expected_close_date": expected_close_date
+        })
     
     # Get unique owners for filter with error handling
     owners = []
