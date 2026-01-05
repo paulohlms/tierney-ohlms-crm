@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
@@ -310,18 +311,22 @@ async def initialize_database_background():
         executor.shutdown(wait=False)
 
 # Add session middleware for authentication
-# Use environment variable if set, otherwise use default (change in production!)
+# CRITICAL FIX: Configure session cookies to work behind proxy (Render, etc.)
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-# Configure session middleware with proper cookie settings
-# max_age: 7 days (604800 seconds)
-# same_site: "lax" allows cookies to be sent on top-level navigations
-# httponly: True prevents JavaScript access (security)
+
+# Detect if we're behind a proxy (HTTPS) or local development
+# Render and similar services set X-Forwarded-Proto header
+IS_PRODUCTION = os.getenv("RENDER", "").lower() == "true" or os.getenv("ENVIRONMENT", "").lower() == "production"
+USE_HTTPS = IS_PRODUCTION  # Assume HTTPS in production
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
     max_age=604800,  # 7 days
-    same_site="lax",
-    https_only=False  # Set to True in production with HTTPS
+    same_site="lax",  # Allows cookies on top-level navigations (redirects)
+    https_only=USE_HTTPS,  # Secure cookies in production (behind HTTPS proxy)
+    # Note: SessionMiddleware automatically detects HTTPS from X-Forwarded-Proto
+    # when TrustedHostMiddleware is configured (which we added above)
 )
 
 # Setup templates and static files
@@ -1759,12 +1764,22 @@ async def dashboard(
     
     # Step 3: Fix Auth Detection - Check authentication
     logger.info("[DASHBOARD] Dashboard route called, checking authentication...")
-    logger.info(f"[DASHBOARD] Session exists: {hasattr(request, 'session')}, Session keys: {list(request.session.keys()) if hasattr(request, 'session') else 'N/A'}")
+    
+    # Debug session and cookie state
+    has_session = hasattr(request, 'session')
+    session_keys = list(request.session.keys()) if has_session else []
+    logger.info(f"[DASHBOARD] Session exists: {has_session}, Session keys: {session_keys}")
+    
+    # Check for session cookie in request headers
+    cookie_header = request.headers.get("Cookie", "")
+    has_session_cookie = "session=" in cookie_header.lower() or "sessionid=" in cookie_header.lower()
+    logger.info(f"[DASHBOARD] Cookie header present: {bool(cookie_header)}, Session cookie detected: {has_session_cookie}")
     
     current_user = get_current_user(request)
     if not current_user:
         # User is truly unauthenticated - redirect to login
         logger.warning("[DASHBOARD] User not authenticated, redirecting to login")
+        logger.warning(f"[DASHBOARD] Session state: exists={has_session}, keys={session_keys}, cookie_present={has_session_cookie}")
         return RedirectResponse(url="/login", status_code=303)
     
     logger.info(f"[DASHBOARD] User authenticated: {current_user.email} (ID: {current_user.id})")
