@@ -29,12 +29,19 @@ if DATABASE_URL:
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
     
     try:
-        # PostgreSQL engine with connection pooling
+        # PostgreSQL engine with optimized connection pooling
         engine = create_engine(
             DATABASE_URL,
-            pool_pre_ping=True,  # Verify connections before using
-            pool_recycle=300,    # Recycle connections after 5 minutes
-            echo=False           # Set to True for SQL debugging
+            pool_pre_ping=True,      # Verify connections before using
+            pool_recycle=300,        # Recycle connections after 5 minutes
+            pool_size=20,            # Increased pool size for better concurrency
+            max_overflow=40,          # Allow overflow connections under load
+            pool_timeout=30,         # Timeout for getting connection from pool
+            echo=False,              # Set to True for SQL debugging
+            connect_args={
+                "connect_timeout": 10,  # Connection timeout
+                "application_name": "tierney_ohlms_crm"
+            }
         )
         logger.info("Database engine created: PostgreSQL")
     except Exception as e:
