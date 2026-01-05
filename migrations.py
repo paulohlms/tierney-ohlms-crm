@@ -200,7 +200,7 @@ def _migrate_services_table(conn, inspector) -> bool:
         # Define required columns with their SQL definitions
         # Based on the Service model in models.py
         required_columns = {
-            'service_type': 'VARCHAR NOT NULL DEFAULT \'Other\'',  # Required field, add default for existing rows
+            'service_type': "VARCHAR NOT NULL DEFAULT 'Other'",  # Required field, add default for existing rows
             'billing_frequency': 'VARCHAR',
             'monthly_fee': 'DOUBLE PRECISION',
             'active': 'BOOLEAN DEFAULT TRUE'
