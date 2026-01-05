@@ -208,4 +208,90 @@
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 </style>
+
+<script>
+// Load revenue data asynchronously after page load
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('[DASHBOARD] Loading revenue data asynchronously...');
+    
+    fetch('/api/dashboard/revenue')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to load revenue data');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('[DASHBOARD] Revenue data loaded:', data);
+            
+            // Update total revenue
+            const totalRevenueEl = document.getElementById('total-revenue');
+            if (totalRevenueEl) {
+                totalRevenueEl.innerHTML = '$' + data.total_revenue_formatted;
+            }
+            
+            // Update prospects revenue
+            const prospectsRevenueEl = document.getElementById('prospects-revenue');
+            if (prospectsRevenueEl) {
+                const count = {{ prospects_count }};
+                prospectsRevenueEl.innerHTML = `(${count} prospects, $${data.total_prospect_revenue.toLocaleString('en-US', {maximumFractionDigits: 0})} estimated)`;
+            }
+            
+            // Update won revenue
+            const wonRevenueEl = document.getElementById('won-revenue');
+            if (wonRevenueEl) {
+                const count = {{ won_count }};
+                wonRevenueEl.innerHTML = `(${count} deals, $${data.total_won_revenue.toLocaleString('en-US', {maximumFractionDigits: 0})} revenue)`;
+            }
+            
+            // Update lost revenue
+            const lostRevenueEl = document.getElementById('lost-revenue');
+            if (lostRevenueEl) {
+                const count = {{ lost_count }};
+                lostRevenueEl.innerHTML = `(${count} deals, $${data.total_lost_value.toLocaleString('en-US', {maximumFractionDigits: 0})} estimated value)`;
+            }
+            
+            // Update individual prospect revenues
+            if (data.prospects) {
+                data.prospects.forEach(prospect => {
+                    const el = document.querySelector(`.prospect-revenue[data-client-id="${prospect.client_id}"]`);
+                    if (el) {
+                        el.innerHTML = '$' + prospect.estimated_revenue.toLocaleString('en-US', {maximumFractionDigits: 0});
+                    }
+                });
+            }
+            
+            // Update individual won revenues
+            if (data.won_deals) {
+                data.won_deals.forEach(deal => {
+                    const el = document.querySelector(`.won-revenue[data-client-id="${deal.client_id}"]`);
+                    if (el) {
+                        el.innerHTML = '$' + deal.actual_revenue.toLocaleString('en-US', {maximumFractionDigits: 0});
+                    }
+                });
+            }
+            
+            // Update individual lost revenues
+            if (data.lost_deals) {
+                data.lost_deals.forEach(deal => {
+                    const el = document.querySelector(`.lost-revenue[data-client-id="${deal.client_id}"]`);
+                    if (el) {
+                        el.innerHTML = '$' + deal.estimated_value.toLocaleString('en-US', {maximumFractionDigits: 0});
+                    }
+                });
+            }
+            
+            console.log('[DASHBOARD] Revenue data updated successfully');
+        })
+        .catch(error => {
+            console.error('[DASHBOARD] Error loading revenue data:', error);
+            
+            // Show error state
+            const totalRevenueEl = document.getElementById('total-revenue');
+            if (totalRevenueEl) {
+                totalRevenueEl.innerHTML = '<span style="color: #e74c3c;">Error</span>';
+            }
+        });
+});
+</script>
 {% endblock %}
