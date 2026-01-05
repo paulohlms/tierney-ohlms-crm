@@ -1753,11 +1753,16 @@ async def dashboard(
     from auth import get_current_user, require_permission
     
     # Step 3: Fix Auth Detection - Check authentication
+    logger.info("[DASHBOARD] Dashboard route called, checking authentication...")
+    logger.info(f"[DASHBOARD] Session exists: {hasattr(request, 'session')}, Session keys: {list(request.session.keys()) if hasattr(request, 'session') else 'N/A'}")
+    
     current_user = get_current_user(request)
     if not current_user:
         # User is truly unauthenticated - redirect to login
-        logger.info("[DASHBOARD] User not authenticated, redirecting to login")
+        logger.warning("[DASHBOARD] User not authenticated, redirecting to login")
         return RedirectResponse(url="/login", status_code=303)
+    
+    logger.info(f"[DASHBOARD] User authenticated: {current_user.email} (ID: {current_user.id})")
     
     # Step 2: Authorization
     permission_check = require_permission(current_user, "view_dashboard")

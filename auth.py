@@ -135,11 +135,15 @@ def get_current_user(request: Request) -> Optional[User]:
     """
     # Check if session exists and has user_id
     if not hasattr(request, 'session'):
+        logger.debug("[AUTH] No session attribute on request")
         return None
     
     user_id = request.session.get("user_id")
     if not user_id:
+        logger.debug(f"[AUTH] No user_id in session. Session keys: {list(request.session.keys())}")
         return None
+    
+    logger.debug(f"[AUTH] Found user_id in session: {user_id}")
     
     db = SessionLocal()
     try:
