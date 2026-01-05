@@ -29,22 +29,22 @@ def get_client(db: Session, client_id: int) -> Optional[Client]:
 
 async def calculate_client_revenue_async(client_id: int) -> float:
     """
-    REBUILT: Non-blocking revenue calculation with timeout protection.
-    
     Calculate annual revenue for a client based on active services.
+    
+    FIXED: Removed artificial timeouts - now properly handles SQL errors.
     Revenue = sum of (monthly_fee × multiplier) for all active services
     Multiplier: 12 for Monthly, 4 for Quarterly, 1 for Annual
     
-    Returns 0.0 if calculation fails or times out.
-    This ensures graceful degradation when database queries fail.
+    Returns 0.0 if calculation fails (e.g., schema errors, missing columns).
+    Errors are logged with full context for debugging.
     
-    CRITICAL: This function runs the blocking query in a thread pool with timeout.
-    It never blocks the event loop and always returns within the timeout period.
+    CRITICAL: This function runs in a thread pool to avoid blocking the event loop,
+    but does NOT use artificial timeouts that mask real SQL errors.
     """
     import logging
     import asyncio
-    from concurrent.futures import ThreadPoolExecutor
     from database import SessionLocal
+    from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
     logger = logging.getLogger(__name__)
     
     def _blocking_query(client_id: int) -> float:
@@ -52,6 +52,9 @@ async def calculate_client_revenue_async(client_id: int) -> float:
         db = None
         try:
             db = SessionLocal()
+            
+            # FIXED: Direct query with proper error handling
+            # This will fail fast if schema is wrong, allowing us to fix it
             services = db.query(Service).filter(
                 Service.client_id == client_id,
                 Service.active == True
@@ -69,12 +72,27 @@ async def calculate_client_revenue_async(client_id: int) -> float:
                             revenue += service.monthly_fee
                         else:
                             revenue += service.monthly_fee * 12
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"[REVENUE] Error processing service {service.id}: {e}")
                     continue
             
             return revenue
+            
+        except ProgrammingError as e:
+            # Schema error - log with full context
+            error_msg = str(e)
+            logger.error(
+                f"[REVENUE] SCHEMA ERROR for client {client_id}: {error_msg}\n"
+                f"This indicates a schema drift issue. Check migrations."
+            )
+            return 0.0
+        except SQLAlchemyError as e:
+            # Database error - log with context
+            logger.error(f"[REVENUE] Database error for client {client_id}: {e}", exc_info=True)
+            return 0.0
         except Exception as e:
-            logger.error(f"[REVENUE] Blocking query error for client {client_id}: {e}")
+            # Unexpected error
+            logger.error(f"[REVENUE] Unexpected error for client {client_id}: {e}", exc_info=True)
             return 0.0
         finally:
             if db:
@@ -84,31 +102,14 @@ async def calculate_client_revenue_async(client_id: int) -> float:
                     pass
     
     try:
-        logger.info(f"[REVENUE] Starting non-blocking revenue calculation for client {client_id}")
+        logger.info(f"[REVENUE] Starting revenue calculation for client {client_id}")
         
-        # CRITICAL: Run blocking query in thread pool with timeout
-        # This prevents blocking the event loop
-        try:
-            logger.info(f"[REVENUE] Step 1: Executing query in thread pool with 2-second timeout...")
-            
-            # Use asyncio.to_thread (Python 3.9+) or run_in_executor
-            try:
-                revenue = await asyncio.wait_for(
-                    asyncio.to_thread(_blocking_query, client_id),
-                    timeout=2.0  # 2 second timeout
-                )
-                logger.info(f"[REVENUE] Step 2: Query completed - revenue: ${revenue:,.2f}")
-                return revenue
-            except asyncio.TimeoutError:
-                logger.error(f"[REVENUE] Query timeout for client {client_id} after 2 seconds - returning 0.0")
-                return 0.0
-            except Exception as e:
-                logger.error(f"[REVENUE] Query error for client {client_id}: {e}", exc_info=True)
-                return 0.0
-                
-        except Exception as e:
-            logger.error(f"[REVENUE] Outer error for client {client_id}: {e}", exc_info=True)
-            return 0.0
+        # Run in thread pool (non-blocking) but WITHOUT artificial timeout
+        # This allows real SQL errors to surface instead of being masked
+        revenue = await asyncio.to_thread(_blocking_query, client_id)
+        
+        logger.info(f"[REVENUE] Revenue calculation complete for client {client_id}: ${revenue:,.2f}")
+        return revenue
             
     except Exception as e:
         logger.error(f"[REVENUE] Fatal error for client {client_id}: {e}", exc_info=True)

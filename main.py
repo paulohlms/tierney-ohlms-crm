@@ -1792,6 +1792,7 @@ async def note_delete(
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -2091,29 +2092,34 @@ async def dashboard(
         "today": date.today()
     }
     
-    # PERFORMANCE: Cache the statistics for next request
-    background_tasks.add_task(
-        set_cache,
-        cache_key,
-        {
-            "prospects": prospects_data,
-            "prospects_count": len(prospects),
-            "total_prospect_revenue": total_prospect_revenue,
-            "won_deals": won_data,
-            "won_count": len(won_clients),
-            "total_won_revenue": total_won_revenue,
-            "lost_deals": lost_data,
-            "lost_count": len(lost_clients),
-            "total_lost_value": total_lost_value,
-            "total_clients": total_clients,
-            "active_clients": total_active,
-            "total_prospects": len(prospects),
-            "total_revenue": total_revenue,
-            "total_revenue_formatted": f"{total_revenue:,.0f}",
-            "total_hours": total_hours
-        },
-        timedelta(minutes=5)  # Cache for 5 minutes
-    )
+    # PERFORMANCE: Cache the statistics for next request (optional - safe if cache unavailable)
+    try:
+        cache_key = f"dashboard_stats_{current_user.id}"
+        background_tasks.add_task(
+            set_cache,
+            cache_key,
+            {
+                "prospects": prospects_data,
+                "prospects_count": len(prospects),
+                "total_prospect_revenue": total_prospect_revenue,
+                "won_deals": won_data,
+                "won_count": len(won_clients),
+                "total_won_revenue": total_won_revenue,
+                "lost_deals": lost_data,
+                "lost_count": len(lost_clients),
+                "total_lost_value": total_lost_value,
+                "total_clients": total_clients,
+                "active_clients": total_active,
+                "total_prospects": len(prospects),
+                "total_revenue": total_revenue,
+                "total_revenue_formatted": f"{total_revenue:,.0f}",
+                "total_hours": total_hours
+            },
+            timedelta(minutes=5)  # Cache for 5 minutes
+        )
+    except Exception as e:
+        logger.debug(f"[DASHBOARD] Could not schedule cache update: {e}")
+        # Non-critical - continue without caching
     
     # Render and return
     render_start = time.perf_counter()

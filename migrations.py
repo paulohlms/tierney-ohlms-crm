@@ -381,9 +381,10 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
         
         # Define required columns with their SQL definitions
         # Based on the Timesheet model in models.py
+        # CRITICAL: staff_member is required by the model - must exist in DB
         required_columns = {
             'entry_date': "DATE NOT NULL DEFAULT CURRENT_DATE",  # Required field, add default for existing rows
-            'staff_member': "VARCHAR NOT NULL DEFAULT 'Unknown'",  # Required field - THIS WAS MISSING
+            'staff_member': "VARCHAR NOT NULL DEFAULT 'Unknown'",  # CRITICAL: Required by model - fixes schema drift
             'start_time': 'VARCHAR',
             'end_time': 'VARCHAR',
             'hours': 'DOUBLE PRECISION NOT NULL DEFAULT 0',  # Required field
