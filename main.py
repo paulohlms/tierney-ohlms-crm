@@ -222,6 +222,17 @@ def reset_admin_users():
 # Initialize FastAPI app
 app = FastAPI(title="Tierney & Ohlms CRM")
 
+# CRITICAL: Add TrustedHostMiddleware FIRST to handle proxy headers
+# This must be added before SessionMiddleware so proxy headers are available
+# When deployed behind a proxy (Render, etc.), this allows FastAPI to:
+# 1. Trust X-Forwarded-* headers from the proxy
+# 2. Detect HTTPS correctly for secure cookies
+# 3. Set correct cookie domain/path
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["*"]  # In production, specify your domain
+)
+
 # Run migrations and bootstrap on startup
 # CRITICAL: Use background task to avoid blocking port binding
 # This ensures Uvicorn binds to the port immediately for Render's health check
