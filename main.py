@@ -2895,7 +2895,25 @@ async def clients_export(
     
     # Write data
     for client in clients:
-        revenue = calculate_client_revenue(db, client.id)
+        # Note: Export is synchronous, so use inline calculation
+        try:
+            services = db.query(Service).filter(
+                Service.client_id == client.id,
+                Service.active == True
+            ).all()
+            revenue = 0.0
+            for service in services:
+                if service.monthly_fee:
+                    if service.billing_frequency == "Monthly":
+                        revenue += service.monthly_fee * 12
+                    elif service.billing_frequency == "Quarterly":
+                        revenue += service.monthly_fee * 4
+                    elif service.billing_frequency == "Annual":
+                        revenue += service.monthly_fee
+                    else:
+                        revenue += service.monthly_fee * 12
+        except Exception:
+            revenue = 0.0
         writer.writerow([
             client.legal_name,
             client.entity_type or "",
