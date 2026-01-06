@@ -3,12 +3,7 @@ services:
     name: tierney-ohlms-crm
     runtime: python
     plan: free  # or starter, standard, etc.
-    buildCommand: |
-      export PYTHONIOENCODING=utf-8
-      export LANG=en_US.UTF-8
-      export LC_ALL=en_US.UTF-8
-      export LC_CTYPE=en_US.UTF-8
-      pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       # UTF-8 Encoding Variables
@@ -22,9 +17,13 @@ services:
         value: en_US.UTF-8
       - key: PYTHONUNBUFFERED
         value: "1"
-      # Application Variables (set these in Render dashboard)
+      # Production Detection
+      - key: RENDER
+        value: "true"
+      # Application Variables (MUST be set in Render dashboard)
       - key: DATABASE_URL
-        sync: false
+        sync: false  # Will be auto-set when linking PostgreSQL
       - key: SECRET_KEY
-        sync: false
+        sync: false  # MUST be set manually in Render dashboard
+
 
