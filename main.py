@@ -39,47 +39,46 @@ def force_db_sync():
     """
     Force database schema sync for timesheets table.
     
-    Ensures all required columns exist. Uses column existence check
-    since PostgreSQL doesn't support IF NOT EXISTS for ALTER TABLE ADD COLUMN.
+    Ensures all required columns exist. Only runs for PostgreSQL databases.
+    SQLite databases are handled by Base.metadata.create_all().
     """
+    import os
+    from sqlalchemy import inspect
+    
+    # Only run for PostgreSQL (Render production)
+    if not os.getenv("DATABASE_URL") or "sqlite" in os.getenv("DATABASE_URL", "").lower():
+        logger.debug("[FORCE SYNC] Skipping - SQLite database (local development)")
+        return
+    
     logger.info("[FORCE SYNC] Starting mandatory schema enforcement...")
     
     # Required columns with their SQL definitions
     required_columns = {
-        'staff_member': 'TEXT NOT NULL DEFAULT \'Unknown\'',
+        'staff_member': 'VARCHAR NOT NULL DEFAULT \'Unknown\'',
         'entry_date': 'DATE NOT NULL DEFAULT CURRENT_DATE',
-        'start_time': 'TIME',
-        'end_time': 'TIME',
+        'start_time': 'VARCHAR',
+        'end_time': 'VARCHAR',
         'hours': 'DOUBLE PRECISION NOT NULL DEFAULT 0',
-        'project_task': 'TEXT',
+        'project_task': 'VARCHAR',
         'description': 'TEXT',
         'billable': 'BOOLEAN DEFAULT TRUE'
     }
     
     try:
+        inspector = inspect(engine)
+        
+        # Check if timesheets table exists
+        if 'timesheets' not in inspector.get_table_names():
+            logger.warning("[FORCE SYNC] Timesheets table does not exist - will be created by Base.metadata.create_all")
+            return
+        
         with engine.begin() as conn:
-            # Check if timesheets table exists
-            table_check = conn.execute(text("""
-                SELECT table_name 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public' AND table_name = 'timesheets'
-            """))
-            if not table_check.fetchone():
-                logger.warning("[FORCE SYNC] Timesheets table does not exist - will be created by Base.metadata.create_all")
-                return
+            # Get existing columns
+            existing_columns = {col['name'] for col in inspector.get_columns('timesheets')}
             
             # Check and add each column
             for col_name, col_def in required_columns.items():
-                # Check if column exists
-                col_check = conn.execute(text("""
-                    SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_schema = 'public' 
-                    AND table_name = 'timesheets' 
-                    AND column_name = :col_name
-                """), {"col_name": col_name})
-                
-                if col_check.fetchone():
+                if col_name in existing_columns:
                     logger.debug(f"[FORCE SYNC] Column 'timesheets.{col_name}' already exists")
                     continue
                 
@@ -90,14 +89,9 @@ def force_db_sync():
                 except Exception as e:
                     error_msg = str(e).lower()
                     # Check if column was added concurrently
-                    col_check_again = conn.execute(text("""
-                        SELECT column_name 
-                        FROM information_schema.columns 
-                        WHERE table_schema = 'public' 
-                        AND table_name = 'timesheets' 
-                        AND column_name = :col_name
-                    """), {"col_name": col_name})
-                    if col_check_again.fetchone():
+                    inspector = inspect(engine)
+                    updated_columns = {col['name'] for col in inspector.get_columns('timesheets')}
+                    if col_name in updated_columns:
                         logger.info(f"[FORCE SYNC] Column 'timesheets.{col_name}' already exists (race condition)")
                     else:
                         logger.error(f"[FORCE SYNC] Failed to add column 'timesheets.{col_name}': {e}")
@@ -106,14 +100,7 @@ def force_db_sync():
         logger.info("[FORCE SYNC] Database columns verified/added successfully")
     except Exception as e:
         logger.error(f"[FORCE SYNC] Failed to sync: {e}", exc_info=True)
-        raise
-
-# Run this IMMEDIATELY on script load
-try:
-    force_db_sync()
-except Exception as e:
-    logger.error(f"[FORCE SYNC] Critical error during schema sync: {e}")
-    # Don't crash on import - let startup handle it
+        # Don't raise - let startup migrations handle it
 from models import Client, Contact, Service, Task, Note, Timesheet
 from schemas import (
     ClientCreate, ClientUpdate,
@@ -745,12 +732,32 @@ async def clients_list(
         clients = []
     
     # Calculate revenue and timesheet summaries for each client
-    # NO FALLBACKS: If columns are missing, this will crash (migration must fix it)
+    # CRITICAL: Add error handling to prevent route crashes
     from crud import get_timesheet_summary
     clients_with_data = []
     for client in clients:
-        revenue = await calculate_client_revenue_async(client.id)
-        timesheet_summary = get_timesheet_summary(db, client_id=client.id)
+        # Revenue calculation with error handling
+        revenue = 0.0
+        try:
+            revenue = await calculate_client_revenue_async(client.id)
+        except Exception as e:
+            logger.error(f"[CLIENTS] Error calculating revenue for client {client.id}: {e}", exc_info=True)
+            revenue = 0.0
+        
+        # Timesheet summary with error handling
+        timesheet_summary = {
+            "total_hours": 0.0,
+            "billable_hours": 0.0,
+            "total_entries": 0
+        }
+        try:
+            timesheet_summary = get_timesheet_summary(db, client_id=client.id)
+            if not isinstance(timesheet_summary, dict):
+                timesheet_summary = {"total_hours": 0.0, "billable_hours": 0.0, "total_entries": 0}
+        except Exception as e:
+            logger.error(f"[CLIENTS] Error getting timesheet summary for client {client.id}: {e}", exc_info=True)
+            # Use safe defaults to prevent route crash
+            timesheet_summary = {"total_hours": 0.0, "billable_hours": 0.0, "total_entries": 0}
         
         clients_with_data.append({
             "client": client,
@@ -853,21 +860,31 @@ async def prospects_list(
         prospects = []
         
     # Calculate estimated revenue for each prospect
-    # NO FALLBACKS: If columns are missing, this will crash (migration must fix it)
+    # CRITICAL: Add error handling to prevent route crashes
     prospects_with_data = []
     for prospect in prospects:
-        estimated_revenue = await calculate_client_revenue_async(prospect.id)
+        # Revenue calculation with error handling
+        estimated_revenue = 0.0
+        try:
+            estimated_revenue = await calculate_client_revenue_async(prospect.id)
+        except Exception as e:
+            logger.error(f"[PROSPECTS] Error calculating revenue for prospect {prospect.id}: {e}", exc_info=True)
+            estimated_revenue = 0.0
         
-        # Determine stage
+        # Determine stage with error handling
         stage_value = "New"
-        if prospect.next_follow_up_date:
-            days_until = (prospect.next_follow_up_date - date.today()).days
-            if days_until < 0:
-                stage_value = "Negotiation"
-            elif days_until <= 7:
-                stage_value = "Proposal"
-            elif days_until <= 30:
-                stage_value = "Contacted"
+        try:
+            if prospect.next_follow_up_date:
+                days_until = (prospect.next_follow_up_date - date.today()).days
+                if days_until < 0:
+                    stage_value = "Negotiation"
+                elif days_until <= 7:
+                    stage_value = "Proposal"
+                elif days_until <= 30:
+                    stage_value = "Contacted"
+        except Exception as e:
+            logger.warning(f"[PROSPECTS] Error determining stage for prospect {prospect.id}: {e}")
+            stage_value = "New"
         
         # Check filters
         if stage and stage != stage_value:
@@ -876,20 +893,28 @@ async def prospects_list(
         if owner and prospect.owner_name and owner.lower() not in prospect.owner_name.lower():
             continue
         
-        # Get expected close date
+        # Get expected close date with error handling
         expected_close_date = None
-        if prospect.next_follow_up_date:
-            expected_close_date = prospect.next_follow_up_date
-        elif prospect.created_at:
-            if hasattr(prospect.created_at, 'date'):
-                expected_close_date = prospect.created_at.date()
-            else:
-                expected_close_date = prospect.created_at
+        try:
+            if prospect.next_follow_up_date:
+                expected_close_date = prospect.next_follow_up_date
+            elif prospect.created_at:
+                if hasattr(prospect.created_at, 'date'):
+                    expected_close_date = prospect.created_at.date()
+                else:
+                    expected_close_date = prospect.created_at
+        except Exception as e:
+            logger.warning(f"[PROSPECTS] Error getting close date for prospect {prospect.id}: {e}")
+            expected_close_date = None
         
-        # Get first contact for display
+        # Get first contact for display with error handling
         first_contact = None
-        if prospect.contacts:
-            first_contact = prospect.contacts[0] if len(prospect.contacts) > 0 else None
+        try:
+            if prospect.contacts:
+                first_contact = prospect.contacts[0] if len(prospect.contacts) > 0 else None
+        except Exception as e:
+            logger.warning(f"[PROSPECTS] Error loading contacts for prospect {prospect.id}: {e}")
+            first_contact = None
         
         prospects_with_data.append({
             "client": prospect,
