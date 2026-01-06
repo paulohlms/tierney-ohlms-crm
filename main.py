@@ -33,6 +33,87 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from database import get_db, engine, Base
+from sqlalchemy import text
+
+def force_db_sync():
+    """
+    Force database schema sync for timesheets table.
+    
+    Ensures all required columns exist. Uses column existence check
+    since PostgreSQL doesn't support IF NOT EXISTS for ALTER TABLE ADD COLUMN.
+    """
+    logger.info("[FORCE SYNC] Starting mandatory schema enforcement...")
+    
+    # Required columns with their SQL definitions
+    required_columns = {
+        'staff_member': 'TEXT NOT NULL DEFAULT \'Unknown\'',
+        'entry_date': 'DATE NOT NULL DEFAULT CURRENT_DATE',
+        'start_time': 'TIME',
+        'end_time': 'TIME',
+        'hours': 'DOUBLE PRECISION NOT NULL DEFAULT 0',
+        'project_task': 'TEXT',
+        'description': 'TEXT',
+        'billable': 'BOOLEAN DEFAULT TRUE'
+    }
+    
+    try:
+        with engine.begin() as conn:
+            # Check if timesheets table exists
+            table_check = conn.execute(text("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' AND table_name = 'timesheets'
+            """))
+            if not table_check.fetchone():
+                logger.warning("[FORCE SYNC] Timesheets table does not exist - will be created by Base.metadata.create_all")
+                return
+            
+            # Check and add each column
+            for col_name, col_def in required_columns.items():
+                # Check if column exists
+                col_check = conn.execute(text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'timesheets' 
+                    AND column_name = :col_name
+                """), {"col_name": col_name})
+                
+                if col_check.fetchone():
+                    logger.debug(f"[FORCE SYNC] Column 'timesheets.{col_name}' already exists")
+                    continue
+                
+                # Add column
+                try:
+                    conn.execute(text(f"ALTER TABLE timesheets ADD COLUMN {col_name} {col_def}"))
+                    logger.info(f"[FORCE SYNC] Added column 'timesheets.{col_name}'")
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    # Check if column was added concurrently
+                    col_check_again = conn.execute(text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_schema = 'public' 
+                        AND table_name = 'timesheets' 
+                        AND column_name = :col_name
+                    """), {"col_name": col_name})
+                    if col_check_again.fetchone():
+                        logger.info(f"[FORCE SYNC] Column 'timesheets.{col_name}' already exists (race condition)")
+                    else:
+                        logger.error(f"[FORCE SYNC] Failed to add column 'timesheets.{col_name}': {e}")
+                        raise
+        
+        logger.info("[FORCE SYNC] Database columns verified/added successfully")
+    except Exception as e:
+        logger.error(f"[FORCE SYNC] Failed to sync: {e}", exc_info=True)
+        raise
+
+# Run this IMMEDIATELY on script load
+try:
+    force_db_sync()
+except Exception as e:
+    logger.error(f"[FORCE SYNC] Critical error during schema sync: {e}")
+    # Don't crash on import - let startup handle it
 from models import Client, Contact, Service, Task, Note, Timesheet
 from schemas import (
     ClientCreate, ClientUpdate,
@@ -599,10 +680,21 @@ async def logout(request: Request):
 # Client Routes
 # ============================================================================
 
+@app.head("/")
+async def root_head():
+    """
+    Health check endpoint for Render.
+    
+    Returns 200 OK for HEAD requests to prevent 405 Method Not Allowed errors.
+    """
+    return Response(status_code=200)
+
+
 @app.get("/")
 async def root(request: Request):
     """Redirect root to login page."""
     return RedirectResponse(url="/login", status_code=303)
+
 
 @app.get("/health")
 async def health_check():
