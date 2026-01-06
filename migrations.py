@@ -64,15 +64,18 @@ def migrate_database_schema():
                 print("[MIGRATION] Contacts table does not exist - will be created by Base.metadata.create_all")
                 contacts_success = True  # Table will be created fresh
             
-            # Migrate timesheets table
+            # Migrate timesheets table - CRITICAL: Always run migration if table exists
             timesheets_success = False
-            if 'timesheets' in inspector.get_table_names():
-                print("[MIGRATION] Migrating timesheets table...")
+            table_names = inspector.get_table_names()
+            print(f"[MIGRATION] Checking for timesheets table. Available tables: {table_names}")
+            
+            if 'timesheets' in table_names:
+                print("[MIGRATION] Timesheets table found - running migration...")
                 timesheets_success = _migrate_timesheets_table(conn, inspector)
                 if timesheets_success:
                     print("[MIGRATION] Timesheets table migration completed successfully")
                 else:
-                    print("[MIGRATION ERROR] Timesheets table migration failed")
+                    print("[MIGRATION ERROR] Timesheets table migration failed - check logs above")
             else:
                 print("[MIGRATION] Timesheets table does not exist - will be created by Base.metadata.create_all")
                 timesheets_success = True  # Table will be created fresh
@@ -400,17 +403,23 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
         }
         
         # FORCE: Check each column and add if missing using raw SQL ALTER TABLE
+        print(f"[MIGRATION] Checking {len(required_columns)} required columns...")
         columns_added = []
+        columns_existing = []
+        
         for col_name, col_def in required_columns.items():
             # Check if column exists
-            if column_exists('timesheets', col_name):
+            exists = column_exists('timesheets', col_name)
+            if exists:
                 print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists")
+                columns_existing.append(col_name)
                 continue
             
             # FORCE: Add column using raw SQL ALTER TABLE
             # PostgreSQL doesn't support IF NOT EXISTS, so we check first, then add
             try:
                 sql = f"ALTER TABLE timesheets ADD COLUMN {col_name} {col_def}"
+                print(f"[MIGRATION] Executing: ALTER TABLE timesheets ADD COLUMN {col_name} ...")
                 conn.execute(text(sql))
                 print(f"[MIGRATION] Added column 'timesheets.{col_name}'")
                 columns_added.append(col_name)
@@ -425,9 +434,14 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
                 # Check if column was added concurrently
                 if column_exists('timesheets', col_name):
                     print(f"[MIGRATION] Column 'timesheets.{col_name}' already exists (race condition)")
+                    columns_existing.append(col_name)
                 else:
                     print(f"[MIGRATION ERROR] Could not add column 'timesheets.{col_name}': {e}")
+                    import traceback
+                    traceback.print_exc()
                     return False
+        
+        print(f"[MIGRATION] Columns existing: {len(columns_existing)}, Columns added: {len(columns_added)}")
         
         # FORCE: Final verification - all columns MUST exist
         missing_columns = []
