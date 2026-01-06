@@ -384,8 +384,8 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
             except Exception:
                 return False
         
-        # FORCE: Define all required columns - these MUST exist
-        # Based on Timesheet model: staff_member, entry_date, start_time, end_time, hours, project_task, description, billable
+        # FORCE: Define ALL required columns from Timesheet model - these MUST exist
+        # Complete list: staff_member, entry_date, start_time, end_time, hours, project_task, description, billable, created_at, updated_at
         required_columns = {
             'staff_member': "VARCHAR NOT NULL DEFAULT 'Unknown'",
             'entry_date': "DATE NOT NULL DEFAULT CURRENT_DATE",
@@ -394,7 +394,9 @@ def _migrate_timesheets_table(conn, inspector) -> bool:
             'hours': 'DOUBLE PRECISION NOT NULL DEFAULT 0',
             'project_task': 'VARCHAR',
             'description': 'TEXT',
-            'billable': 'BOOLEAN DEFAULT TRUE'
+            'billable': 'BOOLEAN DEFAULT TRUE',
+            'created_at': 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP',
+            'updated_at': 'TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP'
         }
         
         # FORCE: Check each column and add if missing using raw SQL ALTER TABLE

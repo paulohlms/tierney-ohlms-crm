@@ -595,142 +595,49 @@ def get_timesheet_summary(
     """
     Get summary statistics for timesheets.
     
-    OPTIMIZED: After migration, uses ORM queries for better performance.
-    Falls back to raw SQL only if schema is incomplete (defensive mode).
+    Uses ORM queries directly. Migration must ensure all columns exist.
+    No fallbacks - if columns are missing, migration failed and must be fixed.
     """
-    import logging
-    from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
-    from psycopg.errors import UndefinedColumn
-    logger = logging.getLogger(__name__)
+    from sqlalchemy import func, and_
     
-    # Safe default return value (only used if schema is incomplete)
-    safe_default = {
-        "total_hours": 0.0,
-        "billable_hours": 0.0,
-        "non_billable_hours": 0.0,
-        "total_entries": 0
+    # Use ORM queries - columns MUST exist (migration ensures this)
+    base_query = db.query(Timesheet)
+    filters = []
+    
+    if client_id:
+        filters.append(Timesheet.client_id == client_id)
+    
+    if staff_member:
+        filters.append(Timesheet.staff_member == staff_member)
+    
+    if date_from:
+        filters.append(Timesheet.entry_date >= date_from)
+    
+    if date_to:
+        filters.append(Timesheet.entry_date <= date_to)
+    
+    # Apply filters to base query
+    if filters:
+        base_query = base_query.filter(and_(*filters))
+    
+    # Calculate totals using ORM
+    total_hours_query = db.query(func.sum(Timesheet.hours))
+    billable_hours_query = db.query(func.sum(Timesheet.hours)).filter(Timesheet.billable == True)
+    
+    if filters:
+        total_hours_query = total_hours_query.filter(and_(*filters))
+        billable_hours_query = billable_hours_query.filter(and_(*filters + [Timesheet.billable == True]))
+    
+    total_hours = float(total_hours_query.scalar() or 0.0)
+    billable_hours = float(billable_hours_query.scalar() or 0.0)
+    total_entries = base_query.count()
+    
+    return {
+        "total_hours": total_hours,
+        "billable_hours": billable_hours,
+        "non_billable_hours": total_hours - billable_hours,
+        "total_entries": total_entries
     }
-    
-    try:
-        # Quick check: verify critical columns exist (only on first call or if error occurs)
-        # After migration succeeds, this check can be skipped for performance
-        from sqlalchemy import text
-        result = db.execute(text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_schema = 'public' 
-            AND table_name = 'timesheets' 
-            AND column_name IN ('staff_member', 'entry_date', 'hours', 'billable')
-        """))
-        existing_critical = {row[0] for row in result}
-        required_critical = {'staff_member', 'entry_date', 'hours', 'billable'}
-        
-        # If critical columns are missing, use raw SQL fallback
-        if not required_critical.issubset(existing_critical):
-            missing = required_critical - existing_critical
-            logger.warning(
-                f"[TIMESHEET] Missing critical columns: {missing}. "
-                f"Using raw SQL fallback. Run migrate_db.py to fix."
-            )
-            # Use raw SQL fallback (existing code below)
-            has_staff_member = 'staff_member' in existing_critical
-            if staff_member and not has_staff_member:
-                staff_member = None  # Skip this filter
-        else:
-            # All columns exist - use fast ORM path
-            has_staff_member = True
-        
-        # CRITICAL FIX: If staff_member column is missing, use raw SQL to avoid ORM selecting it
-        if not has_staff_member or not required_critical.issubset(existing_critical):
-            # Use raw SQL queries to avoid ORM trying to select missing columns
-            from sqlalchemy import text
-            
-            # Build WHERE clause
-            where_clauses = []
-            params = {}
-            
-            if client_id:
-                where_clauses.append("client_id = :client_id")
-                params['client_id'] = client_id
-            
-            if date_from:
-                where_clauses.append("entry_date >= :date_from")
-                params['date_from'] = date_from
-            
-            if date_to:
-                where_clauses.append("entry_date <= :date_to")
-                params['date_to'] = date_to
-            
-            where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
-            
-            # Calculate totals using raw SQL
-            total_hours_result = db.execute(
-                text(f"SELECT COALESCE(SUM(hours), 0) FROM timesheets WHERE {where_sql}"),
-                params
-            )
-            total_hours = float(total_hours_result.scalar() or 0.0)
-            
-            billable_hours_result = db.execute(
-                text(f"SELECT COALESCE(SUM(hours), 0) FROM timesheets WHERE {where_sql} AND billable = true"),
-                params
-            )
-            billable_hours = float(billable_hours_result.scalar() or 0.0)
-            
-            count_result = db.execute(
-                text(f"SELECT COUNT(*) FROM timesheets WHERE {where_sql}"),
-                params
-            )
-            total_entries = int(count_result.scalar() or 0)
-        else:
-            # Use ORM queries when all columns exist
-            base_query = db.query(Timesheet)
-            filters = []
-            
-            if client_id:
-                filters.append(Timesheet.client_id == client_id)
-            
-            if staff_member:
-                filters.append(Timesheet.staff_member == staff_member)
-            
-            if date_from:
-                filters.append(Timesheet.entry_date >= date_from)
-            
-            if date_to:
-                filters.append(Timesheet.entry_date <= date_to)
-            
-            # Apply filters to base query
-            if filters:
-                base_query = base_query.filter(*filters)
-            
-            # Calculate totals
-            total_hours_query = db.query(func.sum(Timesheet.hours))
-            billable_hours_query = db.query(func.sum(Timesheet.hours)).filter(Timesheet.billable == True)
-            
-            if filters:
-                total_hours_query = total_hours_query.filter(*filters)
-                billable_hours_query = billable_hours_query.filter(*filters)
-            
-            total_hours = float(total_hours_query.scalar() or 0.0)
-            billable_hours = float(billable_hours_query.scalar() or 0.0)
-            total_entries = base_query.count()
-        
-        return {
-            "total_hours": float(total_hours),
-            "billable_hours": float(billable_hours),
-            "non_billable_hours": float(total_hours - billable_hours),
-            "total_entries": total_entries
-        }
-        
-    # NO FALLBACKS: If columns are missing, this will crash (migration must fix it)
-        
-    except SQLAlchemyError as e:
-        logger.error(f"[TIMESHEET] Database error in get_timesheet_summary: {e}", exc_info=True)
-        db.rollback()
-        return safe_default
-        
-    except Exception as e:
-        logger.error(f"[TIMESHEET] Unexpected error in get_timesheet_summary: {e}", exc_info=True)
-        return safe_default
 
 
 # User CRUD

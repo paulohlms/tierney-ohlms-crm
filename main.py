@@ -35,72 +35,7 @@ logger = logging.getLogger(__name__)
 from database import get_db, engine, Base
 from sqlalchemy import text
 
-def force_db_sync():
-    """
-    Force database schema sync for timesheets table.
-    
-    Ensures all required columns exist. Only runs for PostgreSQL databases.
-    SQLite databases are handled by Base.metadata.create_all().
-    """
-    import os
-    from sqlalchemy import inspect
-    
-    # Only run for PostgreSQL (Render production)
-    if not os.getenv("DATABASE_URL") or "sqlite" in os.getenv("DATABASE_URL", "").lower():
-        logger.debug("[FORCE SYNC] Skipping - SQLite database (local development)")
-        return
-    
-    logger.info("[FORCE SYNC] Starting mandatory schema enforcement...")
-    
-    # Required columns with their SQL definitions
-    required_columns = {
-        'staff_member': 'VARCHAR NOT NULL DEFAULT \'Unknown\'',
-        'entry_date': 'DATE NOT NULL DEFAULT CURRENT_DATE',
-        'start_time': 'VARCHAR',
-        'end_time': 'VARCHAR',
-        'hours': 'DOUBLE PRECISION NOT NULL DEFAULT 0',
-        'project_task': 'VARCHAR',
-        'description': 'TEXT',
-        'billable': 'BOOLEAN DEFAULT TRUE'
-    }
-    
-    try:
-        inspector = inspect(engine)
-        
-        # Check if timesheets table exists
-        if 'timesheets' not in inspector.get_table_names():
-            logger.warning("[FORCE SYNC] Timesheets table does not exist - will be created by Base.metadata.create_all")
-            return
-        
-        with engine.begin() as conn:
-            # Get existing columns
-            existing_columns = {col['name'] for col in inspector.get_columns('timesheets')}
-            
-            # Check and add each column
-            for col_name, col_def in required_columns.items():
-                if col_name in existing_columns:
-                    logger.debug(f"[FORCE SYNC] Column 'timesheets.{col_name}' already exists")
-                    continue
-                
-                # Add column
-                try:
-                    conn.execute(text(f"ALTER TABLE timesheets ADD COLUMN {col_name} {col_def}"))
-                    logger.info(f"[FORCE SYNC] Added column 'timesheets.{col_name}'")
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    # Check if column was added concurrently
-                    inspector = inspect(engine)
-                    updated_columns = {col['name'] for col in inspector.get_columns('timesheets')}
-                    if col_name in updated_columns:
-                        logger.info(f"[FORCE SYNC] Column 'timesheets.{col_name}' already exists (race condition)")
-                    else:
-                        logger.error(f"[FORCE SYNC] Failed to add column 'timesheets.{col_name}': {e}")
-                        raise
-        
-        logger.info("[FORCE SYNC] Database columns verified/added successfully")
-    except Exception as e:
-        logger.error(f"[FORCE SYNC] Failed to sync: {e}", exc_info=True)
-        # Don't raise - let startup migrations handle it
+# REMOVED: force_db_sync() - migrations.py is the single source of truth
 from models import Client, Contact, Service, Task, Note, Timesheet
 from schemas import (
     ClientCreate, ClientUpdate,
@@ -375,38 +310,8 @@ async def initialize_database_background():
             logger.error(f"[BACKGROUND ERROR] Database migration failed: {e}", exc_info=True)
             logger.warning("[BACKGROUND] Continuing without migrations - application will work")
         
-        # Step 2.5: Force database sync (CRITICAL - runs every startup)
-        try:
-            logger.info("[BACKGROUND] Running force database sync...")
-            await loop.run_in_executor(executor, force_db_sync)
-            logger.info("[BACKGROUND] Force database sync completed")
-        except Exception as e:
-            logger.error(f"[BACKGROUND ERROR] Force database sync failed: {e}", exc_info=True)
-            logger.warning("[BACKGROUND] Continuing - migrations will handle schema")
-        
-        # Step 2.6: Self-healing schema migration (backup - runs after force sync)
-        try:
-            logger.info("[BACKGROUND] Running self-healing schema migration...")
-            from self_heal_schema import self_heal_all_schema
-            heal_success = await loop.run_in_executor(executor, self_heal_all_schema)
-            if heal_success:
-                logger.info("[BACKGROUND] ✓ Self-healing schema migration completed successfully")
-            else:
-                logger.warning("[BACKGROUND] ⚠ Self-healing schema migration completed with issues")
-        except Exception as e:
-            logger.debug(f"[BACKGROUND] Self-healing schema migration not available: {e}")
-        
-        # Step 2.6: Comprehensive schema fix (backup - runs after self-healing)
-        try:
-            logger.info("[BACKGROUND] Running comprehensive schema fix (backup)...")
-            from schema_fix import fix_all_schema_drift
-            schema_success, schema_report = await loop.run_in_executor(executor, fix_all_schema_drift)
-            if schema_success:
-                logger.info("[BACKGROUND] Comprehensive schema fix completed successfully")
-            else:
-                logger.warning(f"[BACKGROUND] Schema fix completed with issues:\n{schema_report}")
-        except Exception as e:
-            logger.debug(f"[BACKGROUND] Comprehensive schema fix not available: {e}")
+        # REMOVED: All self-healing and backup migration logic
+        # migrations.py is the single source of truth - no fallbacks
         
         # Step 3: Reset/Create admin users
         try:
