@@ -644,19 +644,23 @@ async def clients_list(
         clients = []
     
     # Calculate revenue and timesheet summaries for each client
-    # CRITICAL: Add error handling to prevent route crashes
+    # CRITICAL: Comprehensive error handling - route MUST always return a response
     from crud import get_timesheet_summary
     clients_with_data = []
+    
+    logger.info(f"[CLIENTS] Processing {len(clients)} clients...")
+    
     for client in clients:
         # Revenue calculation with error handling
         revenue = 0.0
         try:
             revenue = await calculate_client_revenue_async(client.id)
         except Exception as e:
-            logger.error(f"[CLIENTS] Error calculating revenue for client {client.id}: {e}", exc_info=True)
+            logger.error(f"[CLIENTS] Error calculating revenue for client {client.id} ({client.legal_name}): {e}", exc_info=True)
             revenue = 0.0
         
         # Timesheet summary with error handling
+        # CRITICAL: If timesheet columns are missing, this will fail - catch it and continue
         timesheet_summary = {
             "total_hours": 0.0,
             "billable_hours": 0.0,
@@ -665,10 +669,19 @@ async def clients_list(
         try:
             timesheet_summary = get_timesheet_summary(db, client_id=client.id)
             if not isinstance(timesheet_summary, dict):
+                logger.warning(f"[CLIENTS] get_timesheet_summary returned non-dict for client {client.id}")
                 timesheet_summary = {"total_hours": 0.0, "billable_hours": 0.0, "total_entries": 0}
         except Exception as e:
-            logger.error(f"[CLIENTS] Error getting timesheet summary for client {client.id}: {e}", exc_info=True)
-            # Use safe defaults to prevent route crash
+            error_msg = str(e)
+            # Check if it's a schema error (missing columns)
+            if "UndefinedColumn" in error_msg or "does not exist" in error_msg:
+                logger.error(
+                    f"[CLIENTS] SCHEMA ERROR: Timesheet columns missing for client {client.id}. "
+                    f"Migration may have failed. Error: {error_msg}"
+                )
+            else:
+                logger.error(f"[CLIENTS] Error getting timesheet summary for client {client.id}: {e}", exc_info=True)
+            # Use safe defaults - route must continue
             timesheet_summary = {"total_hours": 0.0, "billable_hours": 0.0, "total_entries": 0}
         
         clients_with_data.append({
@@ -678,6 +691,8 @@ async def clients_list(
             "billable_hours": timesheet_summary.get("billable_hours", 0.0),
             "timesheet_entries": timesheet_summary.get("total_entries", 0)
         })
+    
+    logger.info(f"[CLIENTS] Successfully processed {len(clients_with_data)} clients with data")
     
     # Get unique values for filter dropdowns with error handling
     statuses = []
@@ -852,7 +867,9 @@ async def prospects_list(
     total_estimated_formatted = f"{total_estimated:,.0f}"
     
     # Render template with error handling
+    # CRITICAL: Always return a response, even if there are errors
     try:
+        logger.info(f"[PROSPECTS] Rendering template with {len(prospects_with_data)} prospects")
         return templates.TemplateResponse(
             "prospects_list.html",
             {
@@ -873,13 +890,20 @@ async def prospects_list(
             }
         )
     except Exception as e:
-        logger.error(f"Error rendering prospects list template: {e}", exc_info=True)
-        return templates.TemplateResponse(
-            "login.html",
-            {
-                "request": request,
-                "error": "An error occurred loading the prospects list. Please try again."
-            },
+        logger.error(f"[PROSPECTS] CRITICAL: Error rendering prospects list template: {e}", exc_info=True)
+        # Return a simple HTML response instead of redirecting to login
+        return HTMLResponse(
+            content=f"""
+            <html>
+                <head><title>Error - Prospects</title></head>
+                <body>
+                    <h1>Error Loading Prospects</h1>
+                    <p>An error occurred while loading the prospects list.</p>
+                    <p>Error: {str(e)}</p>
+                    <p><a href="/dashboard">Return to Dashboard</a></p>
+                </body>
+            </html>
+            """,
             status_code=500
         )
 
