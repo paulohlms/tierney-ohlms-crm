@@ -375,7 +375,16 @@ async def initialize_database_background():
             logger.error(f"[BACKGROUND ERROR] Database migration failed: {e}", exc_info=True)
             logger.warning("[BACKGROUND] Continuing without migrations - application will work")
         
-        # Step 2.5: Self-healing schema migration (CRITICAL - runs every startup)
+        # Step 2.5: Force database sync (CRITICAL - runs every startup)
+        try:
+            logger.info("[BACKGROUND] Running force database sync...")
+            await loop.run_in_executor(executor, force_db_sync)
+            logger.info("[BACKGROUND] Force database sync completed")
+        except Exception as e:
+            logger.error(f"[BACKGROUND ERROR] Force database sync failed: {e}", exc_info=True)
+            logger.warning("[BACKGROUND] Continuing - migrations will handle schema")
+        
+        # Step 2.6: Self-healing schema migration (backup - runs after force sync)
         try:
             logger.info("[BACKGROUND] Running self-healing schema migration...")
             from self_heal_schema import self_heal_all_schema
@@ -384,10 +393,8 @@ async def initialize_database_background():
                 logger.info("[BACKGROUND] ✓ Self-healing schema migration completed successfully")
             else:
                 logger.warning("[BACKGROUND] ⚠ Self-healing schema migration completed with issues")
-                logger.warning("[BACKGROUND] Application will continue but some features may not work")
         except Exception as e:
-            logger.error(f"[BACKGROUND ERROR] Self-healing schema migration failed: {e}", exc_info=True)
-            logger.warning("[BACKGROUND] Continuing without self-healing - application may experience errors")
+            logger.debug(f"[BACKGROUND] Self-healing schema migration not available: {e}")
         
         # Step 2.6: Comprehensive schema fix (backup - runs after self-healing)
         try:
